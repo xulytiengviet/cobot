@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {features,handTargets,advance} from '../web/control.mjs';
+const limits=[[-1.7,1.7],[-.98,1],[-2,1.3],[-2,2],[-2.1,2.1],[-3.1,3.1]];
+const ref=[.5,.5,.2,3.13,1,1];
+test('neutral hand leaves calibrated angles unchanged',()=>{assert.deepEqual(handTargets(ref,ref,[0,.2,.3,0,0,0],limits,1),[0,.2,.3,0,0,0]);});
+test('all six controls are independent and bounded',()=>{for(let i=0;i<6;i++){const f=[...ref];f[i]+=.1;const q=handTargets(f,ref,Array(6).fill(0),limits,1);assert.notEqual(q[i],0);q.forEach((v,j)=>{assert(v>=limits[j][0]&&v<=limits[j][1]);if(j!==i)assert.equal(v,0);});}const q=handTargets([9,9,9,0,9,9],ref,Array(6).fill(0),limits,1);q.forEach((v,i)=>assert(v>=limits[i][0]&&v<=limits[i][1]));});
+test('angle wraps across pi without jumping',()=>{const f=[...ref];f[3]=-3.13;assert(Math.abs(handTargets(f,ref,Array(6).fill(0),limits,1)[3])<.03);});
+test('single joint mode only moves selected joint',()=>{const f=[...ref];f[0]=.6;const q=handTargets(f,ref,Array(6).fill(0),limits,1,4);assert(q[4]<0);assert(q.filter((v,i)=>i!==4).every(v=>v===0));});
+test('velocity bounded even after a long frame gap',()=>{assert(advance([0],[10],8)[0]<=.06);assert.deepEqual(advance([1],[1],.02),[1]);});
+test('tiny landmark palm rejected',()=>assert.equal(features(Array.from({length:21},()=>({x:0,y:0}))),null));

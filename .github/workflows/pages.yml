@@ -1,0 +1,38 @@
+name: Deploy Cobot Lab
+on:
+  push:
+    branches: [main]
+    paths: ['index.html', 'web/**', 'tests/**', 'PAROL6_URDF/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/control.test.mjs
+      - uses: actions/configure-pages@v5
+      - name: Stage web assets
+        run: |
+          mkdir -p _site/PAROL6_URDF/PAROL6
+          cp index.html LICENSE WEB_SIMULATOR.md _site/
+          cp -r web _site/
+          cp -r PAROL6_URDF/PAROL6/urdf PAROL6_URDF/PAROL6/meshes _site/PAROL6_URDF/PAROL6/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
