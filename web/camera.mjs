@@ -24,3 +24,20 @@ export function waitForVideo(video,ms=12000){
   video.addEventListener('loadeddata',check);video.addEventListener('resize',check);video.addEventListener('error',fail);check();
  });
 }
+
+
+// Prefer decoded-frame notifications to currentTime: currentTime alone can advance without a fresh picture.
+export function watchVideoFrames(video,onFrame){
+ if(typeof video.requestVideoFrameCallback!=='function')return null;
+ let enabled=true,handle=null,lastPresented=-1;
+ const tick=(now,metadata)=>{
+  if(!enabled)return;
+  if(metadata.presentedFrames!==lastPresented){
+   lastPresented=metadata.presentedFrames;
+   onFrame(now,metadata);
+  }
+  handle=video.requestVideoFrameCallback(tick);
+ };
+ handle=video.requestVideoFrameCallback(tick);
+ return ()=>{enabled=false;if(handle!==null)video.cancelVideoFrameCallback?.(handle);};
+}
