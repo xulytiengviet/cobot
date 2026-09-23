@@ -10,10 +10,9 @@ export function timeout(promise,ms,label,onLate=()=>{}){
 }
 export function stopStream(stream){stream?.getTracks().forEach(track=>track.stop());}
 export async function acquireCamera(mediaDevices,deviceId){
- const preferred=deviceId?{deviceId:{exact:deviceId}}:{facingMode:'user'};
- try{return await timeout(mediaDevices.getUserMedia({video:{...preferred,width:{ideal:640},height:{ideal:480}},audio:false}),20000,'Camera permission / startup timed out',stopStream);}
- catch(error){if(error.name!=='OverconstrainedError'||deviceId)throw error;
- return timeout(mediaDevices.getUserMedia({video:true,audio:false}),20000,'Camera startup timed out',stopStream);}
+ // Let the device/driver negotiate its native format. No facingMode or size hints.
+ const video=deviceId?{deviceId:{exact:deviceId}}:true;
+ return timeout(mediaDevices.getUserMedia({video,audio:false}),20000,'Camera permission / startup timed out',stopStream);
 }
 export function waitForVideo(video,ms=12000){
  if(video.readyState>=2&&video.videoWidth>0)return Promise.resolve();

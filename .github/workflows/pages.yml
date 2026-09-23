@@ -2,7 +2,7 @@ name: Deploy Cobot Lab
 on:
   push:
     branches: [main]
-    paths: ['index.html', 'web/**', 'tests/**', 'scripts/**', 'PAROL6_URDF/**', '.github/workflows/pages.yml']
+    paths: ['index.html', 'camera-check.html', 'web/**', 'tests/**', 'scripts/**', 'PAROL6_URDF/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -44,7 +44,7 @@ jobs:
       - name: Stage web assets
         run: |
           mkdir -p _site/PAROL6_URDF/PAROL6
-          cp index.html LICENSE WEB_SIMULATOR.md _site/
+          cp index.html camera-check.html LICENSE WEB_SIMULATOR.md _site/
           cp -r web _site/
           cp -r PAROL6_URDF/PAROL6/urdf PAROL6_URDF/PAROL6/meshes _site/PAROL6_URDF/PAROL6/
       - uses: actions/upload-pages-artifact@v3

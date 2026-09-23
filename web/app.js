@@ -65,7 +65,7 @@ $('calibrate').onclick=()=>{if(!hand||stopped||!ready)return;if(mode!=='hand'&&m
 let aiLoading=false;
 function releaseCamera(){session++;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;freeze();clearReference();$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
 async function refreshDevices(){
- try{const current=$('cameraSelect').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');$('cameraSelect').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));$('cameraSelect').value=current;}catch(error){console.warn('Cannot list cameras',error);}
+ try{const current=$('cameraSelect').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');$('cameraSelect').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));if(devices.some(d=>d.deviceId===current))$('cameraSelect').value=current;}catch(error){console.warn('Cannot list cameras',error);}
 }
 async function startAI(token){
  if(aiLoading){$('retryAI').hidden=false;say('AI đang hoàn tất lần tải trước. Nhấn Thử lại AI khi nút sẵn sàng.');return;}aiLoading=true;$('retryAI').disabled=true;$('retryAI').hidden=false;
@@ -91,6 +91,8 @@ async function startAI(token){
   status('CAMERA OK · AI LỖI');say(`Camera vẫn hoạt động; nhận diện tay chưa sẵn sàng. Nhấn Thử lại AI. Chi tiết: ${error.message}`);console.error('Hand detector initialization',error);
  }finally{aiLoading=false;$('retryAI').disabled=false;}
 }
+$('refreshCameras').onclick=refreshDevices;
+if(navigator.mediaDevices){refreshDevices();navigator.mediaDevices.addEventListener?.('devicechange',refreshDevices);}
 $('retryAI').onclick=()=>{if(stream)startAI(session);};
 $('camera').onclick=async()=>{
  if(stream||starting){releaseCamera();say('Đã tắt camera.');return;}
@@ -105,7 +107,7 @@ $('camera').onclick=async()=>{
   if(token!==session)return;
   lastVideoTime=-1;lastSeen=performance.now();$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
   await refreshDevices();startAI(token);
- }catch(error){if(token===session){releaseCamera();status('CAMERA LỖI');say(cameraError(error));console.error('Camera startup',error);}}
+ }catch(error){if(token===session){releaseCamera();status('CAMERA LỖI');say(`${cameraError(error)} Chi tiết trình duyệt: ${error.message||'Không có'}. Mở Kiểm tra camera độc lập để khoanh vùng lỗi.`);refreshDevices();console.error('Camera startup',error);}}
  finally{if(token===session){starting=false;$('camera').disabled=false;}}
 };
 const connections=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];

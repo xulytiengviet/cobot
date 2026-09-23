@@ -28,6 +28,12 @@ const assert=require('node:assert/strict');
   await page.unroute('**/hand_landmarker.task');
   await page.getByRole('button',{name:'Thử lại AI',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#cameraState').textContent==='KHÔNG THẤY TAY',null,{timeout:90000});
+  await page.getByRole('button',{name:'Tắt camera',exact:true}).click();
+  await page.goto('http://localhost:8000/camera-check.html');
+  await page.getByRole('button',{name:'Kiểm tra camera',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#result').textContent.includes('CÓ HÌNH'),null,{timeout:20000});
+  await page.getByRole('button',{name:'Tắt / Hủy',exact:true}).click();
+  assert(await page.locator('#preview').evaluate(v=>v.srcObject===null));
   assert.deepEqual(errors,[]);
   console.log('PASS: real MediaPipe init + inference on synthetic video; camera survives AI failure; retry succeeds; stop releases stream.');
  }finally{await browser.close();}

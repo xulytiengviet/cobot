@@ -1,0 +1,24 @@
+<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kiểm tra camera độc lập • Cobot</title><link rel="stylesheet" href="web/style.css"><main style="max-width:850px"><p><a href="./">← Về Cobot</a></p><h1>Kiểm tra camera độc lập</h1><p>Trang này chỉ dùng API camera gốc của trình duyệt. Không tải robot, Three.js hoặc AI. Video không được gửi lên máy chủ.</p><p>Đóng camera ở trang Cobot và các ứng dụng khác trước khi thử.</p><section class="panel"><label>Thiết bị<select id="device"><option value="">Camera mặc định</option></select></label><div class="row" style="margin:15px 0"><button id="refresh">Làm mới danh sách</button><button id="start" class="primary">Kiểm tra camera</button><button id="stop">Tắt / Hủy</button></div><video id="preview" autoplay playsinline muted style="position:static;transform:none;width:100%;aspect-ratio:4/3;background:#000"></video><pre id="result" role="status" style="white-space:pre-wrap;overflow-wrap:anywhere">Chưa kiểm tra.</pre></section><p>Nếu trang này cũng báo NotReadableError: kiểm tra ứng dụng Camera của Windows. Nếu Camera Windows có hình, đóng ứng dụng đó rồi thử trang này bằng Edge. Nếu Camera Windows cũng lỗi, kiểm tra quyền Windows, công tắc camera và driver.</p></main><script type="module">
+const el=id=>document.getElementById(id);let stream=null,session=0,timer;
+const report=text=>el('result').textContent=text;
+function stop(){session++;clearTimeout(timer);stream?.getTracks().forEach(t=>t.stop());stream=null;el('preview').srcObject=null;el('start').disabled=false;el('device').disabled=false;}
+async function list(){try{const selected=el('device').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');el('device').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));if(devices.some(d=>d.deviceId===selected))el('device').value=selected;}catch(e){report(`${e.name}: ${e.message}`);}}
+el('refresh').onclick=list;el('stop').onclick=()=>{stop();report('Đã tắt camera.');};
+el('start').onclick=async()=>{
+ stop();const token=session;el('start').disabled=true;el('device').disabled=true;
+ if(!navigator.mediaDevices?.getUserMedia){stop();report('Camera API không khả dụng. Cần HTTPS và trình duyệt hỗ trợ.');return;}
+ report('Đang yêu cầu mở camera…');
+ timer=setTimeout(()=>{if(token===session){stop();report('TimeoutError: sau 20 giây camera chưa sẵn sàng. Kiểm tra hộp thoại cấp quyền và camera Windows.');}},20000);
+ try{
+  const deviceId=el('device').value;
+  const candidate=await navigator.mediaDevices.getUserMedia({video:deviceId?{deviceId:{exact:deviceId}}:true,audio:false});
+  if(token!==session){candidate.getTracks().forEach(t=>t.stop());return;}stream=candidate;
+  const track=stream.getVideoTracks()[0];track.onended=()=>{if(token===session){stop();report('Camera đã bị ngắt từ hệ thống.');}};
+  const video=el('preview');video.srcObject=stream;await video.play();
+  if(token!==session)return;
+  const show=()=>{if(token!==session||video.readyState<2||!video.videoWidth)return;clearTimeout(timer);report(`CÓ HÌNH: ${track.label}\n${video.videoWidth} × ${video.videoHeight}\nCamera hoạt động trên trang kiểm tra thuần. Hãy tắt camera tại đây trước khi quay về Cobot.`);};
+  video.onloadeddata=show;video.onresize=show;show();await list();
+ }catch(e){if(token!==session)return;stop();report(`${e.name}: ${e.message}\nLỗi xảy ra khi mở/phát camera bằng API gốc, chưa có AI hoặc robot.\nThử ứng dụng Camera của Windows để kiểm tra tiếp.`);await list();}
+};
+addEventListener('pagehide',stop);if(navigator.mediaDevices)list();
+</script></html>
