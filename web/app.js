@@ -4,7 +4,7 @@ import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {features,handTargets,advance,clamp} from './control.mjs';
 import {handPose,OPEN_HAND,fingerCurls,palmGoal,wristTargets,solvePositionIK} from './hand-model.mjs';
 import {makeHand,skeletonPreview} from './hand-view.js';
-import {cameraError,timeout,stopStream,acquireCamera,waitForVideo} from './camera.mjs';
+import {cameraError,timeout,stopStream,acquireCamera,waitForVideo,watchVideoFrames} from './camera.mjs';
 import {createVision} from './vision-client.js';
 import {sampleIsFresh,nextInterval,cameraStalled} from './live-policy.mjs';
 import {videoPopup} from './video-popup.js';
@@ -14,12 +14,12 @@ const mobile=matchMedia('(pointer:coarse)').matches;
 const scene=new THREE.Scene();scene.background=new THREE.Color('#101a23');scene.fog=new THREE.Fog('#101a23',1.5,3.5);
 const camera=new THREE.PerspectiveCamera(38,1,.005,10);camera.up.set(0,0,1);
 let renderer;
-try{renderer=new THREE.WebGLRenderer({antialias:true});}catch(e){$('modelStatus').textContent='Trình duyệt không hỗ trợ WebGL';throw e;}
+try{renderer=new THREE.WebGLRenderer({antialias:!mobile});}catch(e){$('modelStatus').textContent='Trình duyệt không hỗ trợ WebGL';throw e;}
 renderer.setPixelRatio(Math.min(devicePixelRatio,mobile?1:1.5));renderer.shadowMap.enabled=!mobile;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.4;$('scene').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;orbit.minDistance=.25;orbit.maxDistance=2;orbit.maxPolarAngle=Math.PI*.49;
 function view(){camera.position.set(.72,-.85,.6);orbit.target.set(0,0,.20);orbit.update();}view();$('view').onclick=view;
 scene.add(new THREE.HemisphereLight(0xcfe7ff,0x31424b,2.4));
-const key=new THREE.DirectionalLight(0xffffff,4);key.position.set(.4,-.6,1);key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-.6,right:.6,top:.6,bottom:-.6,near:.01,far:3});key.shadow.bias=-.0001;scene.add(key);
+const key=new THREE.DirectionalLight(0xffffff,4);key.position.set(.4,-.6,1);key.castShadow=true;key.shadow.mapSize.set(mobile?512:2048,mobile?512:2048);Object.assign(key.shadow.camera,{left:-.6,right:.6,top:.6,bottom:-.6,near:.01,far:3});key.shadow.bias=-.0001;scene.add(key);
 const rim=new THREE.DirectionalLight(0x80f1c6,2);rim.position.set(-.5,.3,.6);scene.add(rim);
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(8,8),new THREE.MeshStandardMaterial({color:0x101a23,roughness:.9}));ground.position.z=-.008;ground.receiveShadow=true;scene.add(ground);
 const grid=new THREE.GridHelper(2,40,0x365968,0x223441);grid.rotation.x=Math.PI/2;grid.position.z=-.006;scene.add(grid);
@@ -27,6 +27,7 @@ const ring=new THREE.Mesh(new THREE.RingGeometry(.38,.381,128),new THREE.MeshBas
 const root=new THREE.Group();scene.add(root);
 const links={},joints=[],limits=[];let q=Array(6).fill(0),target=[...q],ready=false,stopped=false,mode='manual';
 let pose=null,referencePose=null,referencePosition=null,side=null,referenceSide=null,stableFrames=0;
+let lastAcceptedFrameId=0,lastAcceptedAt=0,acceptedDelay=0,overlayDirty=true;
 let fingers=OPEN_HAND.map(p=>[...p]),fingerTarget=OPEN_HAND.map(p=>[...p]);
 let stream=null,landmarker=null,starting=false,session=0,lastVideoTime=-1,lastSeen=0,lastDetection=0,hand=null,reference=null,referenceAngles=null;
 const labels=['Đế','Vai','Khuỷu','Cẳng tay','Cổ tay','Mặt bích'];
@@ -84,7 +85,7 @@ $('restore').onclick=()=>{if(stopped||!ready)return;try{
  say('Đang khôi phục tư thế đã lưu.');
  }catch{say('Chưa có tư thế hợp lệ được lưu.');}};
 $('calibrate').onclick=()=>{
- if(!hand||!pose||stopped||!ready||stableFrames<3)return;
+ if(!hand||!pose||stopped||!ready||stableFrames<3||stalled||performance.now()-lastSeen>500)return;
  if(mode!=='hand'&&mode!=='single')setMode('hand');
  reference=features(hand);referenceAngles=[...q];referencePose=pose;referenceSide=side;
  scene.updateMatrixWorld(true);referencePosition=links.L6.getWorldPosition(new THREE.Vector3()).toArray();freeze();fingerTarget=pose.local.map(p=>[...p]);
@@ -112,6 +113,8 @@ $('visibility').onchange=()=>{
 };
 function forwardPosition(angles){joints.forEach(({child,axis},i)=>child.quaternion.setFromAxisAngle(axis,angles[i]));root.updateMatrixWorld(true);return links.L6.getWorldPosition(new THREE.Vector3()).toArray();}
 let sampleEpoch=0;
+let observedFrameId=0,lastSubmittedFrameId=-1,stopFrameWatch=null,lastFallbackDraw=0;
+const previewFrame=document.createElement('canvas'),previewContext=previewFrame.getContext('2d');
 let aiLoading=false,detectBusy=false,inferenceMs=0,interval=80,observedVideoTime=-1,lastCameraFrame=0,stalled=false;
 const sampleCanvas=document.createElement('canvas'),sampleContext=sampleCanvas.getContext('2d');
 function aiError(e){hand=null;pose=null;freeze();clearReference();landmarker?.close();landmarker=null;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say(`Camera vẫn mở. ${e.message}. Nhấn Thử lại AI.`);}
