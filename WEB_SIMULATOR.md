@@ -30,3 +30,8 @@ Source Robotics / PCrnjak: PAROL6, GPL-3.0. Các phần bổ sung cùng GPL-3.0.
 GitHub Actions kiểm tra, tải các tệp AI theo phiên bản cố định và SHA-256, giữ chúng trong web/vendor/mediapipe, rồi triển khai Pages. Máy tính: chạy `python scripts/prepare-vision.py`, sau đó `python -m http.server 8000`. Cần HTTPS hoặc localhost; Three.js tải từ CDN. Trang `camera-check.html` kiểm tra API camera gốc độc lập với AI/3D.
 
 `node --test tests/*.test.mjs` kiểm tra camera, chuẩn hóa landmarks, tách co ngón khỏi xoay cổ tay, vị trí trung tính, IK và giới hạn. Workflow kiểm tra MediaPipe thật với camera giả lập và kiểm tra đồng bộ bằng landmarks có kiểm soát. Các kiểm thử không thay thế trải nghiệm camera thật của người dùng, đặc biệt trên iOS.
+
+## Video nổi (LAB 05)
+Bật camera → Hiện video nổi để xem video trực tiếp song song với xương tay và cobot. Cửa sổ nổi nằm trong trang; kéo thanh tiêu đề để di chuyển, kéo góc ↘ để đổi kích thước (hoặc chọn góc bằng Tab và dùng phím mũi tên). Nhấn × hoặc Escape khi đang ở cửa sổ để ẩn video mà vẫn giữ nhận diện và mốc tay. Tắt camera sẽ đóng và xóa hình trong popup.
+
+Mặc định video nổi ẩn. Khi bật, popup hiển thị toàn bộ camera, có thể bao gồm mặt và nền; lựa chọn Chỉ xương tay vẫn áp dụng riêng cho khung nhận diện. Popup dùng lại luồng camera hiện có, không yêu cầu thêm camera và hoạt động cả khi mô hình AI đang tải.

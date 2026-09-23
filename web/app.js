@@ -5,7 +5,9 @@ import {features,handTargets,advance,clamp} from './control.mjs';
 import {handPose,OPEN_HAND,fingerCurls,palmGoal,wristTargets,solvePositionIK} from './hand-model.mjs';
 import {makeHand,skeletonPreview} from './hand-view.js';
 import {cameraError,timeout,stopStream,acquireCamera,waitForVideo} from './camera.mjs';
+import {videoPopup} from './video-popup.js';
 const $=id=>document.getElementById(id),say=t=>$('message').textContent=t;
+const popup=videoPopup($('video'));
 const scene=new THREE.Scene();scene.background=new THREE.Color('#101a23');scene.fog=new THREE.Fog('#101a23',1.5,3.5);
 const camera=new THREE.PerspectiveCamera(38,1,.005,10);camera.up.set(0,0,1);
 let renderer;
@@ -107,7 +109,7 @@ $('visibility').onchange=()=>{
 };
 function forwardPosition(angles){joints.forEach(({child,axis},i)=>child.quaternion.setFromAxisAngle(axis,angles[i]));root.updateMatrixWorld(true);return links.L6.getWorldPosition(new THREE.Vector3()).toArray();}
 let aiLoading=false;
-function releaseCamera(){session++;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;pose=null;stableFrames=0;freeze();clearReference();drawInput(null);$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
+function releaseCamera(){popup.setActive(false);session++;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;pose=null;stableFrames=0;freeze();clearReference();drawInput(null);$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
 async function refreshDevices(){
  try{const current=$('cameraSelect').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');$('cameraSelect').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));if(devices.some(d=>d.deviceId===current))$('cameraSelect').value=current;}catch(error){console.warn('Cannot list cameras',error);}
 }
@@ -149,7 +151,7 @@ $('camera').onclick=async()=>{
   const video=$('video');video.muted=true;video.playsInline=true;video.setAttribute('playsinline','');video.setAttribute('webkit-playsinline','');video.disablePictureInPicture=true;video.srcObject=stream;
   await timeout(video.play(),12000,'Video playback timeout');await waitForVideo(video);
   if(token!==session)return;
-  lastVideoTime=-1;lastSeen=performance.now();$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
+  popup.setActive(true);lastVideoTime=-1;lastSeen=performance.now();$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
   await refreshDevices();startAI(token);
  }catch(error){if(token===session){releaseCamera();status('CAMERA LỖI');say(`${cameraError(error)} Chi tiết trình duyệt: ${error.message||'Không có'}. Mở Kiểm tra camera độc lập để khoanh vùng lỗi.`);refreshDevices();console.error('Camera startup',error);}}
  finally{if(token===session){starting=false;$('camera').disabled=false;}}
@@ -188,6 +190,7 @@ addEventListener('pagehide',releaseCamera);document.addEventListener('visibility
 new ResizeObserver(()=>{const r=$('scene').getBoundingClientRect();renderer.setSize(r.width,r.height);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();}).observe($('scene'));
 let previous=performance.now();const position=new THREE.Vector3();
 function frame(now){requestAnimationFrame(frame);const dt=(now-previous)/1000;previous=now;
+ popup.draw();
  try{detect(now);}catch(e){hand=null;freeze();clearReference();landmarker?.close();landmarker=null;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say(`Camera vẫn mở. Nhận diện gặp lỗi: ${e.message}. Nhấn Thử lại AI.`);console.error(e);}
  if(stream&&landmarker&&!aiLoading&&now-lastSeen>300&&(mode==='hand'||mode==='single'))loseHand(now);
  if(ready&&!stopped&&!document.hidden){
