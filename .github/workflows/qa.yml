@@ -1,0 +1,44 @@
+name: Verify Cobot Lab
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JavaScript module syntax
+        run: |
+          node --check web/app.js
+          node --check web/video-popup.js
+          node --check web/camera.mjs
+          node --check web/hand-model.mjs
+          node --check web/hand-view.js
+          node --check web/vision-client.js
+      - name: Run unit tests
+        run: node --test tests/*.test.mjs
+      - name: Prepare MediaPipe runtime
+        run: python scripts/prepare-vision.py
+      - name: Test mobile camera and vision in Chromium
+        env:
+          COBOT_PLAYWRIGHT: /tmp/cobot-qa/node_modules/playwright
+        run: |
+          npm install --prefix /tmp/cobot-qa playwright@1.51.1
+          /tmp/cobot-qa/node_modules/.bin/playwright install --with-deps chromium
+          python -m http.server 8000 > /tmp/cobot-http.log 2>&1 &
+          node tests/camera-browser.cjs
+      - name: Preserve screenshots for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini10-mobile-camera-qa
+          path: _qa/*.png
+          if-no-files-found: ignore
+          retention-days: 5

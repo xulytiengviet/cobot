@@ -4,22 +4,25 @@ import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {features,handTargets,advance,clamp} from './control.mjs';
 import {handPose,OPEN_HAND,fingerCurls,palmGoal,wristTargets,solvePositionIK} from './hand-model.mjs';
 import {makeHand,skeletonPreview} from './hand-view.js';
-import {cameraError,timeout,stopStream,acquireCamera,waitForVideo} from './camera.mjs';
+import {cameraError,timeout,stopStream,acquireCamera,waitForVideo,watchVideoFrames} from './camera.mjs';
 import {createVision} from './vision-client.js';
 import {sampleIsFresh,nextInterval,cameraStalled} from './live-policy.mjs';
 import {videoPopup} from './video-popup.js';
 const $=id=>document.getElementById(id),say=t=>$('message').textContent=t;
 const popup=videoPopup($('video'));
-const mobile=matchMedia('(pointer:coarse)').matches;
+if(matchMedia('(pointer:coarse), (max-width: 600px)').matches)$('performance').value='light';
+const mobile=matchMedia('(pointer:coarse), (max-width: 600px)').matches;
+let sceneInView=true;
+if(typeof IntersectionObserver!=='undefined')new IntersectionObserver(entries=>{sceneInView=entries[0]?.isIntersecting??true;},{rootMargin:'100px'}).observe($('scene'));
 const scene=new THREE.Scene();scene.background=new THREE.Color('#101a23');scene.fog=new THREE.Fog('#101a23',1.5,3.5);
 const camera=new THREE.PerspectiveCamera(38,1,.005,10);camera.up.set(0,0,1);
 let renderer;
-try{renderer=new THREE.WebGLRenderer({antialias:true});}catch(e){$('modelStatus').textContent='Trình duyệt không hỗ trợ WebGL';throw e;}
+try{renderer=new THREE.WebGLRenderer({antialias:!mobile});}catch(e){$('modelStatus').textContent='Trình duyệt không hỗ trợ WebGL';throw e;}
 renderer.setPixelRatio(Math.min(devicePixelRatio,mobile?1:1.5));renderer.shadowMap.enabled=!mobile;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.4;$('scene').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;orbit.minDistance=.25;orbit.maxDistance=2;orbit.maxPolarAngle=Math.PI*.49;
 function view(){camera.position.set(.72,-.85,.6);orbit.target.set(0,0,.20);orbit.update();}view();$('view').onclick=view;
 scene.add(new THREE.HemisphereLight(0xcfe7ff,0x31424b,2.4));
-const key=new THREE.DirectionalLight(0xffffff,4);key.position.set(.4,-.6,1);key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-.6,right:.6,top:.6,bottom:-.6,near:.01,far:3});key.shadow.bias=-.0001;scene.add(key);
+const key=new THREE.DirectionalLight(0xffffff,4);key.position.set(.4,-.6,1);key.castShadow=true;key.shadow.mapSize.set(mobile?512:2048,mobile?512:2048);Object.assign(key.shadow.camera,{left:-.6,right:.6,top:.6,bottom:-.6,near:.01,far:3});key.shadow.bias=-.0001;scene.add(key);
 const rim=new THREE.DirectionalLight(0x80f1c6,2);rim.position.set(-.5,.3,.6);scene.add(rim);
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(8,8),new THREE.MeshStandardMaterial({color:0x101a23,roughness:.9}));ground.position.z=-.008;ground.receiveShadow=true;scene.add(ground);
 const grid=new THREE.GridHelper(2,40,0x365968,0x223441);grid.rotation.x=Math.PI/2;grid.position.z=-.006;scene.add(grid);
@@ -27,6 +30,7 @@ const ring=new THREE.Mesh(new THREE.RingGeometry(.38,.381,128),new THREE.MeshBas
 const root=new THREE.Group();scene.add(root);
 const links={},joints=[],limits=[];let q=Array(6).fill(0),target=[...q],ready=false,stopped=false,mode='manual';
 let pose=null,referencePose=null,referencePosition=null,side=null,referenceSide=null,stableFrames=0;
+let lastAcceptedFrameId=0,lastAcceptedAt=0,lastAcceptedMediaTime=0,acceptedDelay=0,overlayDirty=true;
 let fingers=OPEN_HAND.map(p=>[...p]),fingerTarget=OPEN_HAND.map(p=>[...p]);
 let stream=null,landmarker=null,starting=false,session=0,lastVideoTime=-1,lastSeen=0,lastDetection=0,hand=null,reference=null,referenceAngles=null;
 const labels=['Đế','Vai','Khuỷu','Cẳng tay','Cổ tay','Mặt bích'];
@@ -84,7 +88,7 @@ $('restore').onclick=()=>{if(stopped||!ready)return;try{
  say('Đang khôi phục tư thế đã lưu.');
  }catch{say('Chưa có tư thế hợp lệ được lưu.');}};
 $('calibrate').onclick=()=>{
- if(!hand||!pose||stopped||!ready||stableFrames<3)return;
+ if(!hand||!pose||stopped||!ready||stableFrames<3||stalled||performance.now()-lastSeen>500)return;
  if(mode!=='hand'&&mode!=='single')setMode('hand');
  reference=features(hand);referenceAngles=[...q];referencePose=pose;referenceSide=side;
  scene.updateMatrixWorld(true);referencePosition=links.L6.getWorldPosition(new THREE.Vector3()).toArray();freeze();fingerTarget=pose.local.map(p=>[...p]);
@@ -92,40 +96,76 @@ $('calibrate').onclick=()=>{
 };
 $('focusHand').onclick=()=>{if(!ready)return;const pos=robotHand.group.localToWorld(new THREE.Vector3(0,.05,0));orbit.minDistance=.09;orbit.target.copy(pos);camera.position.copy(pos).add(new THREE.Vector3(.17,-.20,.12));orbit.update();};
 function drawInput(points){
+ if(!overlayDirty)return;
+ overlayDirty=false;
  const c=$('overlay'),ctx=c.getContext('2d'),v=$('video'),display=$('visibility').value;
- if(c.width!==640||c.height!==480){c.width=640;c.height=480;}ctx.clearRect(0,0,640,480);ctx.fillStyle='#080e13';ctx.fillRect(0,0,640,480);
- if(!points){if(display==='full'&&stream&&v.readyState>=2){ctx.save();ctx.translate(640,0);ctx.scale(-1,1);ctx.drawImage(v,0,0,640,480);ctx.restore();}return;}
+ if(c.width!==640||c.height!==480){c.width=640;c.height=480;}
+ ctx.clearRect(0,0,640,480);ctx.fillStyle='#080e13';ctx.fillRect(0,0,640,480);
+ const src=previewFrame.width?previewFrame:v;
+ const sw=src.videoWidth||src.width,sh=src.videoHeight||src.height;
+ const available=sw>0&&sh>0&&(src!==v||v.readyState>=2);
+ if(!points){
+  if(display==='full'&&available){
+   ctx.save();ctx.translate(640,0);ctx.scale(-1,1);
+   ctx.drawImage(src,0,0,sw,sh,0,0,640,480);ctx.restore();
+  }
+  return;
+ }
+ if(!available)return;
  let minX=0,minY=0,maxX=1,maxY=1;
- if(display!=='full'){minX=Math.min(...points.map(p=>p.x));maxX=Math.max(...points.map(p=>p.x));minY=Math.min(...points.map(p=>p.y));maxY=Math.max(...points.map(p=>p.y));const cx=(minX+maxX)/2,cy=(minY+maxY)/2;const h=Math.max(maxY-minY,(maxX-minX)*v.videoWidth/v.videoHeight)*1.4;minY=Math.max(0,cy-h/2);maxY=Math.min(1,cy+h/2);const w=(maxY-minY)*4/3*v.videoHeight/v.videoWidth;minX=Math.max(0,cx-w/2);maxX=Math.min(1,cx+w/2);}
- const width=Math.max(maxX-minX,.001),height=Math.max(maxY-minY,.001),aspect=width*v.videoWidth/(height*v.videoHeight);
- const dw=Math.min(640,480*aspect),dh=dw/aspect,ox=(640-dw)/2,oy=(480-dh)/2;
+ if(display!=='full'){
+  const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
+  const cx=(Math.min(...xs)+Math.max(...xs))/2,cy=(Math.min(...ys)+Math.max(...ys))/2;
+  const bboxW=Math.max(...xs)-Math.min(...xs),bboxH=Math.max(...ys)-Math.min(...ys);
+  const h=Math.max(bboxH,bboxW*sw/sh)*1.45;
+  minY=Math.max(0,cy-h/2);maxY=Math.min(1,cy+h/2);
+  const w=(maxY-minY)*4/3*sh/sw;
+  minX=Math.max(0,cx-w/2);maxX=Math.min(1,cx+w/2);
+ }
+ const width=Math.max(maxX-minX,.001),height=Math.max(maxY-minY,.001);
+ const aspect=width*sw/(height*sh),dw=Math.min(640,480*aspect),dh=dw/aspect,ox=(640-dw)/2,oy=(480-dh)/2;
  ctx.save();ctx.translate(640,0);ctx.scale(-1,1);
- if(display!=='skeleton'&&v.readyState>=2)ctx.drawImage(v,minX*v.videoWidth,minY*v.videoHeight,width*v.videoWidth,height*v.videoHeight,ox,oy,dw,dh);
- const xy=p=>[ox+(p.x-minX)/width*dw,oy+(p.y-minY)/height*dh];ctx.strokeStyle='#80f1c6';ctx.lineWidth=3;
+ if(display!=='skeleton')ctx.drawImage(src,minX*sw,minY*sh,width*sw,height*sh,ox,oy,dw,dh);
+ const xy=p=>[ox+(p.x-minX)/width*dw,oy+(p.y-minY)/height*dh];
+ ctx.strokeStyle='#80f1c6';ctx.lineWidth=3;
  for(const [a,b]of connections){ctx.beginPath();ctx.moveTo(...xy(points[a]));ctx.lineTo(...xy(points[b]));ctx.stroke();}
- for(const p of points){ctx.beginPath();ctx.arc(...xy(p),4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();}ctx.restore();
+ for(const p of points){ctx.beginPath();ctx.arc(...xy(p),4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();}
+ ctx.restore();
 }
 $('visibility').onchange=()=>{
  const display=$('visibility').value;
  $('privacyNote').textContent=display==='skeleton'?'Ẩn toàn bộ video; camera vẫn nhận diện tay.':display==='crop'?'Chỉ cắt vùng tay; nền phía sau tay vẫn có thể xuất hiện.':'Đang hiển thị toàn bộ hình camera.';
- drawInput(hand);
+ overlayDirty=true;drawInput(hand);
 };
 function forwardPosition(angles){joints.forEach(({child,axis},i)=>child.quaternion.setFromAxisAngle(axis,angles[i]));root.updateMatrixWorld(true);return links.L6.getWorldPosition(new THREE.Vector3()).toArray();}
 let sampleEpoch=0;
-let aiLoading=false,detectBusy=false,inferenceMs=0,interval=80,observedVideoTime=-1,lastCameraFrame=0,stalled=false;
+let observedFrameId=0,lastSubmittedFrameId=-1,stopFrameWatch=null,lastFallbackDraw=0;
+const previewFrame=document.createElement('canvas'),previewContext=previewFrame.getContext('2d');
+let aiAbort=null,aiLoading=false,detectBusy=false,inferenceMs=0,interval=80,observedVideoTime=-1,lastCameraFrame=0,stalled=false;
 const sampleCanvas=document.createElement('canvas'),sampleContext=sampleCanvas.getContext('2d');
-function aiError(e){hand=null;pose=null;freeze();clearReference();landmarker?.close();landmarker=null;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say(`Camera vẫn mở. ${e.message}. Nhấn Thử lại AI.`);}
+function aiError(e){sampleEpoch++;detectBusy=false;hand=null;pose=null;freeze();clearReference();landmarker?.close();landmarker=null;overlayDirty=true;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say('Camera vẫn mở. '+e.message+'. Nhấn Thử lại AI.');}
 
-function releaseCamera(){popup.setActive(false);session++;landmarker?.close();landmarker=null;stalled=false;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;pose=null;stableFrames=0;freeze();clearReference();drawInput(null);$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
+function releaseCamera(){
+ popup.setActive(false);session++;sampleEpoch++;detectBusy=false;
+ aiAbort?.abort();aiAbort=null;
+ stopFrameWatch?.();stopFrameWatch=null;observedFrameId=0;lastSubmittedFrameId=-1;lastAcceptedFrameId=0;acceptedDelay=0;
+ landmarker?.close();landmarker=null;stalled=false;starting=false;
+ stopStream(stream);stream=null;$('video').pause();$('video').srcObject=null;
+ hand=null;pose=null;stableFrames=0;freeze();clearReference();
+ previewFrame.width=0;previewFrame.height=0;overlayDirty=true;drawInput(null);
+ $('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;
+ $('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;
+ status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);
+}
 async function refreshDevices(){
  try{const current=$('cameraSelect').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');$('cameraSelect').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));if(devices.some(d=>d.deviceId===current))$('cameraSelect').value=current;}catch(error){console.warn('Cannot list cameras',error);}
 }
 async function startAI(token){
- if(aiLoading){$('retryAI').hidden=false;say('AI đang hoàn tất lần tải trước. Nhấn Thử lại AI khi nút sẵn sàng.');return;}aiLoading=true;$('retryAI').disabled=true;$('retryAI').hidden=false;
+ if(aiLoading){$('retryAI').hidden=false;say('AI đang hoàn tất lần tải trước. Nhấn Thử lại AI khi nút sẵn sàng.');return;}aiLoading=true;const controller=new AbortController();aiAbort=controller;$('retryAI').disabled=true;$('retryAI').hidden=false;
  try{
   status('CAMERA OK · TẢI AI');say('Camera đã mở. Đang tải nhận diện tay (~18 MB lần đầu)…');
   if(!landmarker){
-   const detector=await createVision();
+   const detector=await createVision({signal:controller.signal});
    if(token!==session){detector.close();return;}landmarker=detector;
   }
   if(token!==session)return;
@@ -133,7 +173,7 @@ async function startAI(token){
  }catch(error){
   if(token!==session)return;
   status('CAMERA OK · AI LỖI');say(`Camera vẫn hoạt động; nhận diện tay chưa sẵn sàng. Nhấn Thử lại AI. Chi tiết: ${error.message}`);console.error('Hand detector initialization',error);
- }finally{aiLoading=false;$('retryAI').disabled=false;}
+ }finally{if(aiAbort===controller)aiAbort=null;aiLoading=false;$('retryAI').disabled=false;if(token!==session&&stream&&!landmarker)queueMicrotask(()=>startAI(session));}
 }
 $('refreshCameras').onclick=refreshDevices;
 if(navigator.mediaDevices){refreshDevices();navigator.mediaDevices.addEventListener?.('devicechange',refreshDevices);}
@@ -149,7 +189,9 @@ $('camera').onclick=async()=>{
   const video=$('video');video.muted=true;video.playsInline=true;video.setAttribute('playsinline','');video.setAttribute('webkit-playsinline','');video.disablePictureInPicture=true;video.srcObject=stream;
   await timeout(video.play(),12000,'Video playback timeout');await waitForVideo(video);
   if(token!==session)return;
-  popup.setActive(true);lastCameraFrame=performance.now();observedVideoTime=-1;stalled=false;lastVideoTime=-1;lastSeen=performance.now();$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
+  popup.setActive(true);lastCameraFrame=performance.now();observedVideoTime=-1;observedFrameId=0;lastSubmittedFrameId=-1;stalled=false;lastVideoTime=-1;lastSeen=performance.now();
+   stopFrameWatch?.();stopFrameWatch=watchVideoFrames(video,(time,meta)=>{observedFrameId++;lastCameraFrame=performance.now();stalled=false;});
+   $('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
   await refreshDevices();startAI(token);
  }catch(error){if(token===session){releaseCamera();status('CAMERA LỖI');say(`${cameraError(error)} Chi tiết trình duyệt: ${error.message||'Không có'}. Mở Kiểm tra camera độc lập để khoanh vùng lỗi.`);refreshDevices();console.error('Camera startup',error);}}
  finally{if(token===session){starting=false;$('camera').disabled=false;}}
@@ -157,22 +199,33 @@ $('camera').onclick=async()=>{
 const connections=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
 function detect(now){
  const video=$('video');
- if(document.hidden||stalled||!stream||aiLoading||!landmarker||detectBusy||video.readyState<2||video.currentTime===lastVideoTime||now-lastDetection<interval)return;
- const capturedAt=performance.now(),token=session,epoch=sampleEpoch,detector=landmarker;
- const frameTime=video.currentTime;lastDetection=now;lastVideoTime=frameTime;detectBusy=true;
- const scale=Math.min(1,480/Math.max(video.videoWidth,video.videoHeight));
- sampleCanvas.width=Math.max(1,Math.round(video.videoWidth*scale));sampleCanvas.height=Math.max(1,Math.round(video.videoHeight*scale));
- sampleContext.drawImage(video,0,0,sampleCanvas.width,sampleCanvas.height);
+ if(document.hidden||stalled||!stream||aiLoading||!landmarker||detectBusy||video.readyState<2||now-lastDetection<interval)return;
+ if(stopFrameWatch?observedFrameId<=lastSubmittedFrameId:video.currentTime===lastVideoTime)return;
+ const capturedAt=performance.now(),token=session,epoch=sampleEpoch,detector=landmarker,mediaTime=video.currentTime;
+ const frameId=stopFrameWatch?observedFrameId:++observedFrameId;
+ lastSubmittedFrameId=frameId;lastDetection=now;lastVideoTime=video.currentTime;detectBusy=true;
+ const captureLimit=mobile&&$('performance').value==='light'?320:480;
+ const scale=Math.min(1,captureLimit/Math.max(video.videoWidth,video.videoHeight));
+ const width=Math.max(1,Math.round(video.videoWidth*scale)),height=Math.max(1,Math.round(video.videoHeight*scale));
+ if(sampleCanvas.width!==width||sampleCanvas.height!==height){sampleCanvas.width=width;sampleCanvas.height=height;}
+ sampleContext.drawImage(video,0,0,width,height);
  detector.detect(sampleCanvas,now).then(({result,ms})=>{
-  if(epoch!==sampleEpoch||detector!==landmarker||!sampleIsFresh(token,session,capturedAt,performance.now(),document.hidden))return;
+  if(epoch!==sampleEpoch||detector!==landmarker)return;
   inferenceMs=ms;interval=nextInterval(ms,detector.kind==='AI tương thích',$('performance').value==='light');
-  acceptSample(result,performance.now());
- }).catch(e=>{if(token===session&&detector===landmarker)aiError(e);}).finally(()=>{detectBusy=false;});
+  if(!sampleIsFresh(token,session,capturedAt,performance.now(),document.hidden))return;
+  acceptedDelay=performance.now()-capturedAt;
+  if(previewFrame.width!==width||previewFrame.height!==height){previewFrame.width=width;previewFrame.height=height;}
+  previewContext.drawImage(sampleCanvas,0,0,width,height);
+  lastAcceptedFrameId=frameId;lastAcceptedAt=performance.now();lastAcceptedMediaTime=mediaTime;overlayDirty=true;
+  acceptSample(result,lastAcceptedAt);
+ }).catch(e=>{if(token===session&&detector===landmarker)aiError(e);})
+ .finally(()=>{if(epoch===sampleEpoch)detectBusy=false;});
 }
 function acceptSample(result,now){
- hand=result.landmarks[0]||null;
+ hand=result?.landmarks?.[0]||null;
  side=result.handedness?.[0]?.[0]?.categoryName||'Unknown';
  pose=hand?handPose(hand,result.worldLandmarks?.[0]):null;
+ if(pose?.basis){const b=pose.basis;const map=v=>new THREE.Vector3(v[0],v[2],-v[1]);const matrix=new THREE.Matrix4().makeBasis(map(b.x),map(b.y),map(b.z));pose.viewQuaternion=new THREE.Quaternion().setFromRotationMatrix(matrix);}
  if(hand&&pose){
   const wasLost=stableFrames===0;stableFrames++;
   if(referenceSide&&side!==referenceSide){freeze();clearReference();say('Đã đổi bàn tay. Lấy mốc mới để tiếp tục.');}
@@ -191,12 +244,13 @@ function acceptSample(result,now){
   }
  }else{hand=null;pose=null;loseHand(now);}
 }
+function trackingGrace(){return Math.min(2800,Math.max(1600,interval+inferenceMs*2+450));}
 function loseHand(now){stableFrames=0;if(mode==='hand'||mode==='single')freeze();
- if(reference){$('syncState').textContent='GIỮ TƯ THẾ';$('syncState').dataset.active='false';if(now-lastSeen>700){clearReference();say('Mất dấu tay: đã giữ tư thế. Đưa tay trở lại và lấy mốc mới.');}}
+ if(reference){$('syncState').textContent='GIỮ TƯ THẾ';$('syncState').dataset.active='false';if(now-lastSeen>trackingGrace()){clearReference();say('Mất dấu tay: đã giữ tư thế. Đưa tay trở lại và lấy mốc mới.');}}
  $('calibrate').disabled=true;status('KHÔNG THẤY TAY');if(!reference)say('Đưa một bàn tay vào khung hình, giữ ổn định rồi lấy mốc.');
 }
 addEventListener('pagehide',releaseCamera);document.addEventListener('visibilitychange',()=>{
- sampleEpoch++;hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;
+ sampleEpoch++;hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;overlayDirty=true;previewFrame.width=0;previewFrame.height=0;
  if(!document.hidden&&stream){lastCameraFrame=performance.now();$('video').play().catch(()=>say('Nhấn Khôi phục camera để tiếp tục.'));}
 });
 $('recoverCamera').onclick=async()=>{releaseCamera();await $('camera').onclick();};
@@ -206,18 +260,23 @@ new ResizeObserver(()=>{const r=$('scene').getBoundingClientRect();renderer.setS
 let previous=performance.now();const position=new THREE.Vector3(),handRotation=new THREE.Quaternion();
 function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previous<1000/30)return;const dt=(now-previous)/1000;previous=now;
  const video=$('video');
- if(stream&&video.readyState>=2&&video.currentTime!==observedVideoTime){observedVideoTime=video.currentTime;lastCameraFrame=now;stalled=false;}
+ if(stream&&video.readyState>=2&&video.currentTime!==observedVideoTime){observedVideoTime=video.currentTime;
+   // Hidden iOS/Chromium video elements can throttle rVFC despite advancing media time.
+   if(!stopFrameWatch||now-lastCameraFrame>650){lastCameraFrame=now;stalled=false;observedFrameId++;}
+  }
  if(cameraStalled(lastCameraFrame,now,!!stream,document.hidden)){
-  if(!stalled){hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;stalled=true;say('Video ngừng trả hình. Nhấn Khôi phục camera; trên iPhone hãy mở trang bằng Safari nếu đang dùng trình duyệt trong ứng dụng.');}
+  if(!stalled){hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;stalled=true;overlayDirty=true;say('Video ngừng trả hình. Nhấn Khôi phục camera; trên iPhone hãy mở trang bằng Safari nếu đang dùng trình duyệt trong ứng dụng.');}
   status('CAMERA ĐỨNG HÌNH');
  }
- $('performanceStatus').textContent=stream?`${stalled?'Video đứng': 'Video đang chạy'} · ${landmarker?.kind||'AI chưa sẵn sàng'} · ${Math.round(inferenceMs)} ms / mẫu · tối đa ${Math.round(1000/interval)} mẫu/s`: 'Camera chưa bật';
+ $('performanceStatus').textContent=stream?[stalled?'Video đứng':'Video đang chạy',landmarker?.kind||'AI chưa sẵn sàng',Math.round(inferenceMs)+' ms AI',Math.round(acceptedDelay)+' ms xử lý',Math.round(1000/interval)+' mẫu/s',lastAcceptedFrameId?'Frame #'+lastAcceptedFrameId:'Chưa có mẫu'].join(' · '):'Camera chưa bật';
 
  try{detect(now);}catch(e){detectBusy=false;aiError(e);}
- if(!stalled&&stream&&landmarker&&!aiLoading&&now-lastSeen>700){hand=null;pose=null;loseHand(now);}
+ if(stream&&!landmarker&&$('visibility').value==='full'&&now-lastFallbackDraw>200){overlayDirty=true;lastFallbackDraw=now;}
+ if(!stalled&&stream&&landmarker&&!aiLoading&&now-lastSeen>trackingGrace()){hand=null;pose=null;overlayDirty=true;loseHand(now);}
  if(ready&&!stopped&&!document.hidden){
   if(mode==='demo')target=limits.map(([lo,hi],i)=>clamp(Math.sin(now/2000+i*.6)*.42,lo,hi));
-  const live=!!(hand&&pose&&reference&&(mode==='hand'||mode==='single'));
+  const live=!!(hand&&pose&&reference&&!stalled&&now-lastSeen<=450&&(mode==='hand'||mode==='single'));
+  if(!live&&reference&&(mode==='hand'||mode==='single')&&now-lastSeen>450){freeze();$('syncState').textContent='ĐANG CHỜ MẪU';$('syncState').dataset.active='false';}
   // Live simulation consumes the latest accepted sample without a second lag filter.
   q=live?[...target]:advance(q,target,dt);
   const blend=1-Math.exp(-12*Math.min(dt,.05));
@@ -226,10 +285,11 @@ function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previou
  if(ready){joints.forEach(({child,axis},i)=>{child.quaternion.setFromAxisAngle(axis,q[i]);$('j'+i).value=String(q[i]);$('j'+i).disabled=stopped;$('v'+i).value=(q[i]*180/Math.PI).toFixed(1)+'°';});scene.updateMatrixWorld(true);links.L6.getWorldPosition(position);$('xyz').textContent=`X ${(position.x*1000).toFixed(1)} / Y ${(position.y*1000).toFixed(1)} / Z ${(position.z*1000).toFixed(1)}`;}
  // Both 3D views always use the same applied pose, including pause/loss/manual modes.
  robotHand.update(fingers);robotHand.group.updateWorldMatrix(true,false);
- robotHand.group.getWorldQuaternion(handRotation);skeleton.update(fingers,handRotation);
+ robotHand.group.getWorldQuaternion(handRotation);
+ if(pose&&!stalled&&now-lastSeen<=700)skeleton.update(pose.local,pose.viewQuaternion);else skeleton.update(fingers,handRotation);
  drawInput(hand);popup.draw();
- $('frameStatus').textContent=stream?(hand&&pose?`Mẫu tay ${lastVideoTime.toFixed(2)} s · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot và xương 3D giữ tư thế'):'Bật camera để nhận diện tay';
+ $('frameStatus').textContent=stream?(hand&&pose?`Frame #${lastAcceptedFrameId} · ${lastAcceptedMediaTime.toFixed(2)} s · trễ ${Math.round(acceptedDelay)} ms · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot và xương 3D giữ tư thế'):'Bật camera để nhận diện tay';
  const curls=fingerCurls(fingers);curls.forEach((v,i)=>{$('fbar'+i).value=v*100;$('f'+i).value=Math.round(v*100)+'%';});
- orbit.update();renderer.render(scene,camera);
+ if(sceneInView){orbit.update();renderer.render(scene,camera);}
 }
 requestAnimationFrame(frame);loadRobot().catch(e=>{$('modelStatus').textContent='LỖI TẢI MÔ HÌNH';say('Không tải được mô hình 3D. Kiểm tra mạng và tải lại trang.');console.error(e);});

@@ -11,3 +11,9 @@ test('neutral calibration preserves arm position and wrist',()=>{assert.deepEqua
 test('position IK reaches target and preserves three wrist angles',()=>{const q=[0,0,0,.3,.4,.5];const result=solvePositionIK(q,[.2,-.1,.3],limits,v=>v.slice(0,3));assert(result.error<.001);assert.deepEqual(result.angles.slice(3),q.slice(3));});
 test('unreachable IK stays bounded and finite',()=>{const r=solvePositionIK(Array(6).fill(0),[10,-10,10],limits,v=>v.slice(0,3));assert(r.angles.every(v=>Number.isFinite(v)&&Math.abs(v)<=2));assert(r.error>1);});
 test('degenerate and nonfinite hand data are rejected',()=>{assert.equal(handPose(Array.from({length:21},()=>({x:0,y:0,z:0}))),null);assert.equal(handPose(image.map((p,i)=>i===3?{...p,x:NaN}:p)),null);});
+
+test('tracked palm axes remain orthonormal after hand translation',()=>{
+ const b=ref.basis;
+ for(const axis of [b.x,b.y,b.z])assert(Math.abs(Math.hypot(...axis)-1)<1e-8);
+ for(const [a,c] of [[b.x,b.y],[b.x,b.z],[b.y,b.z]])assert(Math.abs(a.reduce((sum,v,i)=>sum+v*c[i],0))<1e-8);
+});

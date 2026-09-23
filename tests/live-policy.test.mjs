@@ -19,3 +19,8 @@ test('camera watchdog separates stopped video from background tab',()=>{
  assert(!cameraStalled(100,2700,false,false));
  assert(!cameraStalled(100,500,true,false));
 });
+
+test('recent samples pass but 500 ms old camera frames cannot control the robot',()=>{
+ assert(sampleIsFresh(5,5,1000,1449,false));
+ assert(!sampleIsFresh(5,5,1000,1500,false));
+});
