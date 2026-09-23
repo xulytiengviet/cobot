@@ -223,7 +223,7 @@ new ResizeObserver(()=>{const r=$('scene').getBoundingClientRect();renderer.setS
 let previous=performance.now();const position=new THREE.Vector3(),handRotation=new THREE.Quaternion();
 function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previous<1000/30)return;const dt=(now-previous)/1000;previous=now;
  const video=$('video');
- if(stream&&video.readyState>=2&&video.currentTime!==observedVideoTime){observedVideoTime=video.currentTime;lastCameraFrame=now;stalled=false;}
+ if(stream&&video.readyState>=2&&typeof video.requestVideoFrameCallback!=='function'&&video.currentTime!==observedVideoTime){observedVideoTime=video.currentTime;lastCameraFrame=now;stalled=false;}
  if(cameraStalled(lastCameraFrame,now,!!stream,document.hidden)){
   if(!stalled){hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;stalled=true;say('Video ngừng trả hình. Nhấn Khôi phục camera; trên iPhone hãy mở trang bằng Safari nếu đang dùng trình duyệt trong ứng dụng.');}
   status('CAMERA ĐỨNG HÌNH');
@@ -241,11 +241,17 @@ function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previou
   fingers=live?fingerTarget.map(p=>[...p]):fingers.map((p,i)=>p.map((v,j)=>v+(fingerTarget[i][j]-v)*blend));
  }
  if(ready){joints.forEach(({child,axis},i)=>{child.quaternion.setFromAxisAngle(axis,q[i]);$('j'+i).value=String(q[i]);$('j'+i).disabled=stopped;$('v'+i).value=(q[i]*180/Math.PI).toFixed(1)+'°';});scene.updateMatrixWorld(true);links.L6.getWorldPosition(position);$('xyz').textContent=`X ${(position.x*1000).toFixed(1)} / Y ${(position.y*1000).toFixed(1)} / Z ${(position.z*1000).toFixed(1)}`;}
- // Both 3D views always use the same applied pose, including pause/loss/manual modes.
+ // Robot shows commanded motion; skeleton shows the newest measured hand pose.
  robotHand.update(fingers);robotHand.group.updateWorldMatrix(true,false);
- robotHand.group.getWorldQuaternion(handRotation);skeleton.update(fingers,handRotation);
+ robotHand.group.getWorldQuaternion(handRotation);
+ if(hand&&pose){
+  const o=pose.orientation||[0,0,0];
+  const measuredRotation=new THREE.Quaternion().setFromEuler(new THREE.Euler(o[1],-o[2],-o[0],'ZYX'));
+  skeleton.update(pose.local,measuredRotation);
+ }else skeleton.update(fingers,handRotation);
  drawInput(hand);popup.draw();
- $('frameStatus').textContent=stream?(hand&&pose?`Mẫu tay ${lastVideoTime.toFixed(2)} s · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot và xương 3D giữ tư thế'):'Bật camera để nhận diện tay';
+ const sampleAge=acceptedAt?Math.max(0,performance.now()-acceptedAt):0;
+ $('frameStatus').textContent=stream?(hand&&pose?`Frame #${acceptedFrameSeq} · AI ${Math.round(inferenceMs)} ms · tuổi mẫu ${Math.round(sampleAge)} ms · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot giữ tư thế, xương 3D chờ mẫu mới'):'Bật camera để nhận diện tay';
  const curls=fingerCurls(fingers);curls.forEach((v,i)=>{$('fbar'+i).value=v*100;$('f'+i).value=Math.round(v*100)+'%';});
  orbit.update();renderer.render(scene,camera);
 }
