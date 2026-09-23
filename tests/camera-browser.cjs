@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 (async()=>{
  const browser=await chromium.launch({headless:true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  try{
-  const context=await browser.newContext({permissions:['camera']});
+  const context=await browser.newContext({permissions:['camera'],serviceWorkers:'block'});
   const page=await context.newPage();
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://localhost:8000/');
@@ -13,9 +13,16 @@ const assert=require('node:assert/strict');
   await page.waitForFunction(()=>document.querySelector('#camera').textContent==='Tắt camera',null,{timeout:20000});
   await page.waitForFunction(()=>document.querySelector('#cameraState').textContent==='KHÔNG THẤY TAY',null,{timeout:90000});
   assert(await page.locator('#video').evaluate(v=>v.videoWidth>0&&v.readyState>=2));
+  assert((await page.locator('#performanceStatus').textContent()).includes('AI nền'),'Real MediaPipe must initialize and infer in background worker');
   const stopped=await page.locator('#v0').textContent();
   await page.waitForTimeout(300);
   assert.equal(await page.locator('#v0').textContent(),stopped);
+  await page.locator('#video').evaluate(v=>v.pause());
+  await page.waitForFunction(()=>document.querySelector('#cameraState').textContent==='CAMERA ĐỨNG HÌNH',null,{timeout:6000});
+  assert(await page.locator('#calibrate').isDisabled());
+  await page.locator('#recoverCamera').click();
+  await page.waitForFunction(()=>document.querySelector('#cameraState').textContent==='KHÔNG THẤY TAY',null,{timeout:90000});
+  assert(await page.locator('#video').evaluate(v=>!v.paused&&v.currentTime>0));
   await page.getByRole('button',{name:'Tắt camera',exact:true}).click();
   assert(await page.locator('#video').evaluate(v=>v.srcObject===null));
   // Fail AI only: camera must stay open and the retry button must work.
@@ -34,6 +41,8 @@ const assert=require('node:assert/strict');
   await page.waitForFunction(()=>document.querySelector('#result').textContent.includes('CÓ HÌNH'),null,{timeout:20000});
   await page.getByRole('button',{name:'Tắt / Hủy',exact:true}).click();
   assert(await page.locator('#preview').evaluate(v=>v.srcObject===null));
+  // Force the compatibility fallback for window-controlled landmark fixtures only.
+  await page.route('**/vision-worker.js',r=>r.fulfill({contentType:'application/javascript',body:`self.onmessage=()=>self.postMessage({type:'error',message:'Fixture uses window landmarks'});`}));
   // Controlled landmarks exercise synchronization, independently of model accuracy.
   const {OPEN_HAND}=await import('../web/hand-model.mjs');
   const fixture=`export const FilesetResolver={forVisionTasks:async()=>({})};

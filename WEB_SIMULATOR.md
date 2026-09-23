@@ -40,3 +40,11 @@ Mặc định video nổi ẩn. Khi bật, popup hiển thị toàn bộ camera,
 Nhận diện chạy một lần cho mỗi khung video mới, không còn bộ giới hạn 20 Hz. Trong chế độ tay đã lấy mốc, một kết quả nhận diện cập nhật đồng thời tư thế ngón, mục tiêu IK và góc khớp mô phỏng; bỏ lớp làm mượt riêng vốn khiến robot chạy sau hình thị giác. Chế độ thanh trượt/trình diễn vẫn chuyển động mềm. Hai mô hình 3D luôn dùng chung tư thế ngón và hướng bàn tay đã áp dụng trên cobot, kể cả khi dừng, mất tay hoặc chưa lấy mốc. Xương 3D xoay cùng bàn tay cobot, không giữ hướng cố định như trước.
 
 Khung thị giác là quan sát trực tiếp; trước khi lấy mốc hoặc khi dừng nó vẫn cho thấy tay thật, còn cả hai mô hình 3D giữ tư thế. Dòng trạng thái phân biệt rõ trạng thái này với đang bám tay. Đồng bộ là cùng mẫu nhận diện, không phải cam kết không có độ trễ: tốc độ phụ thuộc camera/AI và khả năng máy; robot vẫn bị giới hạn góc và tầm với.
+
+## Chống đứng hình (LAB 07)
+- AI chạy trong Web Worker khi trình duyệt hỗ trợ; nếu khởi tạo worker thất bại, dùng đường tương thích có giới hạn tải. Camera và giao diện tiếp tục chạy khi worker xử lý mẫu.
+- Chỉ một mẫu đang xử lý, không xếp hàng khung hình. Chuẩn hóa đầu vào tối đa 480 px, bỏ mẫu quá 700 ms hoặc khác phiên camera/tab; worker không trả kết quả sau 4 giây sẽ được đóng và hiện Thử lại AI.
+- Nhịp AI thích ứng theo thời gian xử lý (tối đa khoảng 15 mẫu/s), chế độ Nhẹ tối đa 8 mẫu/s; ba hình biểu diễn vẫn dùng cùng kết quả đã chấp nhận. Giao diện 30 FPS mục tiêu, giảm độ phân giải và bóng trên thiết bị cảm ứng. Đây là mức mục tiêu, không cam kết FPS trên mọi máy.
+- Watchdog phân biệt video ngừng chạy trên 2,5 giây với AI không thấy tay. Khôi phục camera đóng stream cũ, mở lại và yêu cầu lấy mốc mới. Khi chuyển tab, vô hiệu mốc và kết quả đang chờ.
+- Nếu dùng trình duyệt trong ứng dụng trên iPhone và camera bị treo, mở URL bằng Safari rồi bật lại camera. Chế độ ẩn video vẫn mặc định.
+- Jev: xem [trợ lý máy tính](integrations/jev/README.md). Không cần khóa API cho camera hoặc chính sách tối ưu cục bộ.
