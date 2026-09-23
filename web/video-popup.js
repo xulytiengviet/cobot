@@ -2,16 +2,25 @@
 export function videoPopup(video) {
  const $=id=>document.getElementById(id),panel=$('videoPopup'),toggle=$('toggleVideoPopup'),canvas=$('popupCanvas'),ctx=canvas.getContext('2d');
  const mobile=matchMedia('(max-width: 600px), (pointer: coarse) and (max-width: 950px)');
- const originalParent=panel.parentElement;
  function place(){
-  if(mobile.matches){$('mobileVideoSlot').append(panel);panel.style.cssText='';}
-  else{originalParent.append(panel);if(!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}}
-  $('popupHandle').querySelector('small').textContent=mobile.matches?'Lấy mốc tay ngay bên dưới':'Kéo để di chuyển';
+  panel.classList.toggle('compact',mobile.matches);panel.style.cssText='';
+  if(!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}
+  sizeLabel();
  }
+ function sizeLabel(){
+  const compact=panel.classList.contains('compact');
+  $('popupSize').textContent=compact?'↗':'↙';
+  $('popupSize').setAttribute('aria-label',compact?'Phóng to video':'Thu nhỏ video');
+  $('popupSize').title=compact?'Phóng to video':'Thu nhỏ video';
+ }
+ $('popupSize').onclick=()=>{
+  const r=panel.getBoundingClientRect();panel.classList.toggle('compact');panel.style.width='';panel.style.height='';
+  fit(r.x,r.y);sizeLabel();
+ };
+ $('popupCalibrate').onclick=()=>{if(!$('calibrate').disabled)$('calibrate').click();};
  mobile.addEventListener('change',place);place();
  let active=false,lastTime=-1;
  function fit(x,y,w=panel.offsetWidth,h=panel.offsetHeight){
-  if(mobile.matches)return;
   w=Math.min(w,innerWidth-16);h=Math.min(h,innerHeight-16);
   Object.assign(panel.style,{width:w+'px',height:h+'px',left:Math.max(8,Math.min(x,innerWidth-w-8))+'px',top:Math.max(8,Math.min(y,innerHeight-h-8))+'px',right:'auto',bottom:'auto'});
  }
@@ -27,7 +36,7 @@ export function videoPopup(video) {
  function gesture(handle,resize){
   let start=null;
   handle.addEventListener('pointerdown',e=>{
-   if(mobile.matches||e.button!==0||e.target.closest('button'))return;
+   if(e.button!==0||e.target.closest('button'))return;
    const r=panel.getBoundingClientRect();start={id:e.pointerId,x:e.clientX,y:e.clientY,r};handle.setPointerCapture(e.pointerId);e.preventDefault();
   });
   handle.addEventListener('pointermove',e=>{
@@ -46,6 +55,7 @@ export function videoPopup(video) {
  return {
   setActive(value){active=value;toggle.disabled=!value;if(!value)show(false);},
   draw(){
+   $('popupCalibrate').disabled=$('calibrate').disabled;
    if(!active||panel.hidden||video.readyState<2||!video.videoWidth||lastTime===video.currentTime)return;
    lastTime=video.currentTime;
    const w=Math.min(video.videoWidth,640),h=Math.round(w*video.videoHeight/video.videoWidth);

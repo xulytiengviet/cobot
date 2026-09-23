@@ -51,3 +51,6 @@ Khung thị giác là quan sát trực tiếp; trước khi lấy mốc hoặc k
 
 ## Bố cục điện thoại (LAB 08)
 Khi bật video trên màn hình nhỏ, khung video nằm trong trang ngay phía trên Bật/Tắt camera và Lấy mốc tay, không phủ lên các nút. Chiều cao video giới hạn theo màn hình, thao tác cuộn vẫn hoạt động. Trên máy tính video vẫn là cửa sổ nổi kéo/đổi kích thước. Chuyển kích thước màn hình tự đổi bố cục, dùng cùng luồng camera và không xóa mốc.
+
+## Camera thu nhỏ luôn hiện (LAB 09)
+Thay thế bố cục LAB 08: trên điện thoại video nổi mặc định thu nhỏ 210 × 290 px, vẫn theo màn hình khi cuộn. Nút Lấy mốc tay nằm ngay trong cửa sổ video và dùng chung trạng thái khả dụng/hành động với nút chính. ↙ thu nhỏ, ↗ phóng to; cả hai đều giữ video chạy và không thay đổi mốc. Kéo tiêu đề để di chuyển. Chỉ × hoặc Ẩn video mới ẩn cửa sổ. Không tự mở video nếu người dùng chưa chọn Hiện video nổi.
