@@ -195,17 +195,26 @@ $('camera').onclick=async()=>{
 const connections=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
 function detect(now){
  const video=$('video');
- if(document.hidden||stalled||!stream||aiLoading||!landmarker||detectBusy||video.readyState<2||video.currentTime===lastVideoTime||now-lastDetection<interval)return;
+ if(document.hidden||stalled||!stream||aiLoading||!landmarker||detectBusy||video.readyState<2||now-lastDetection<interval)return;
+ if(stopFrameWatch?observedFrameId<=lastSubmittedFrameId:video.currentTime===lastVideoTime)return;
  const capturedAt=performance.now(),token=session,epoch=sampleEpoch,detector=landmarker;
- const frameTime=video.currentTime;lastDetection=now;lastVideoTime=frameTime;detectBusy=true;
+ const frameId=stopFrameWatch?observedFrameId:++observedFrameId;
+ lastSubmittedFrameId=frameId;lastDetection=now;lastVideoTime=video.currentTime;detectBusy=true;
  const scale=Math.min(1,480/Math.max(video.videoWidth,video.videoHeight));
- sampleCanvas.width=Math.max(1,Math.round(video.videoWidth*scale));sampleCanvas.height=Math.max(1,Math.round(video.videoHeight*scale));
- sampleContext.drawImage(video,0,0,sampleCanvas.width,sampleCanvas.height);
+ const width=Math.max(1,Math.round(video.videoWidth*scale)),height=Math.max(1,Math.round(video.videoHeight*scale));
+ if(sampleCanvas.width!==width||sampleCanvas.height!==height){sampleCanvas.width=width;sampleCanvas.height=height;}
+ sampleContext.drawImage(video,0,0,width,height);
  detector.detect(sampleCanvas,now).then(({result,ms})=>{
-  if(epoch!==sampleEpoch||detector!==landmarker||!sampleIsFresh(token,session,capturedAt,performance.now(),document.hidden))return;
+  if(epoch!==sampleEpoch||detector!==landmarker)return;
   inferenceMs=ms;interval=nextInterval(ms,detector.kind==='AI tương thích',$('performance').value==='light');
-  acceptSample(result,performance.now());
- }).catch(e=>{if(token===session&&detector===landmarker)aiError(e);}).finally(()=>{detectBusy=false;});
+  if(!sampleIsFresh(token,session,capturedAt,performance.now(),document.hidden))return;
+  acceptedDelay=performance.now()-capturedAt;
+  if(previewFrame.width!==width||previewFrame.height!==height){previewFrame.width=width;previewFrame.height=height;}
+  previewContext.drawImage(sampleCanvas,0,0,width,height);
+  lastAcceptedFrameId=frameId;lastAcceptedAt=performance.now();overlayDirty=true;
+  acceptSample(result,lastAcceptedAt);
+ }).catch(e=>{if(token===session&&detector===landmarker)aiError(e);})
+ .finally(()=>{if(epoch===sampleEpoch)detectBusy=false;});
 }
 function acceptSample(result,now){
  hand=result.landmarks[0]||null;
