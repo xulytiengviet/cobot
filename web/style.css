@@ -17,3 +17,28 @@
  .video-popup{right:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:300px;height:350px}
  .video-popup.compact{width:210px;height:290px}
 }
+
+
+/* MINI10: Inline mobile camera dock. No floating element may cover calibration controls. */
+#mobileVideoSlot{min-width:0;margin:0}
+@media(max-width:950px),(pointer:coarse){
+ #mobileVideoSlot:has(.video-popup:not([hidden])){margin:12px 0}
+ .video-popup.docked,.video-popup.docked.compact{
+  position:relative!important;inset:auto!important;left:auto!important;right:auto!important;
+  top:auto!important;bottom:auto!important;width:100%!important;max-width:100%!important;
+  height:330px!important;max-height:min(55dvh,360px)!important;
+  min-height:190px;margin:0;box-shadow:none;border-radius:12px;z-index:auto;overflow:hidden;
+ }
+ .video-popup.docked.compact{height:225px!important;max-height:min(40dvh,260px)!important}
+ .video-popup.docked .popup-handle{cursor:default;touch-action:auto}
+ .video-popup.docked #popupResize{display:none}
+ .video-popup.docked .popup-actions{flex-shrink:0}
+ .video-popup.docked .popup-actions button{min-height:44px}
+ .video-popup.docked .popup-picture{min-height:32px;overflow:hidden}
+ .video-popup.docked .popup-picture canvas{object-fit:contain}
+ .video-popup.docked .popup-footer{min-height:23px}
+ .camera-panel .row button{min-height:44px}
+ .scene-bottom{left:12px;right:12px;bottom:12px}
+ #skeleton3d{height:220px}
+}
+@media(max-width:420px){header{padding:0 3%}.scene-head{left:12px;right:12px}.coordinates{left:12px}.viewport{min-height:350px}}
