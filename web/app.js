@@ -189,7 +189,7 @@ $('camera').onclick=async()=>{
   await timeout(video.play(),12000,'Video playback timeout');await waitForVideo(video);
   if(token!==session)return;
   popup.setActive(true);lastCameraFrame=performance.now();observedVideoTime=-1;observedFrameId=0;lastSubmittedFrameId=-1;stalled=false;lastVideoTime=-1;lastSeen=performance.now();
-   stopFrameWatch?.();stopFrameWatch=watchVideoFrames(video,(time,meta)=>{observedFrameId=meta.presentedFrames||observedFrameId+1;lastCameraFrame=performance.now();stalled=false;});
+   stopFrameWatch?.();stopFrameWatch=watchVideoFrames(video,(time,meta)=>{observedFrameId++;lastCameraFrame=performance.now();stalled=false;});
    $('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
   await refreshDevices();startAI(token);
  }catch(error){if(token===session){releaseCamera();status('CAMERA LỖI');say(`${cameraError(error)} Chi tiết trình duyệt: ${error.message||'Không có'}. Mở Kiểm tra camera độc lập để khoanh vùng lỗi.`);refreshDevices();console.error('Camera startup',error);}}
@@ -243,7 +243,7 @@ function acceptSample(result,now){
   }
  }else{hand=null;pose=null;loseHand(now);}
 }
-function trackingGrace(){return Math.min(2400,Math.max(900,interval+inferenceMs+350));}
+function trackingGrace(){return Math.min(2800,Math.max(1600,interval+inferenceMs*2+450));}
 function loseHand(now){stableFrames=0;if(mode==='hand'||mode==='single')freeze();
  if(reference){$('syncState').textContent='GIỮ TƯ THẾ';$('syncState').dataset.active='false';if(now-lastSeen>trackingGrace()){clearReference();say('Mất dấu tay: đã giữ tư thế. Đưa tay trở lại và lấy mốc mới.');}}
  $('calibrate').disabled=true;status('KHÔNG THẤY TAY');if(!reference)say('Đưa một bàn tay vào khung hình, giữ ổn định rồi lấy mốc.');
@@ -259,7 +259,10 @@ new ResizeObserver(()=>{const r=$('scene').getBoundingClientRect();renderer.setS
 let previous=performance.now();const position=new THREE.Vector3(),handRotation=new THREE.Quaternion();
 function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previous<1000/30)return;const dt=(now-previous)/1000;previous=now;
  const video=$('video');
- if(stream&&!stopFrameWatch&&video.readyState>=2&&video.currentTime!==observedVideoTime){observedVideoTime=video.currentTime;lastCameraFrame=now;stalled=false;observedFrameId++;}
+ if(stream&&video.readyState>=2&&video.currentTime!==observedVideoTime){observedVideoTime=video.currentTime;
+   // Hidden iOS/Chromium video elements can throttle rVFC despite advancing media time.
+   if(!stopFrameWatch||now-lastCameraFrame>650){lastCameraFrame=now;stalled=false;observedFrameId++;}
+  }
  if(cameraStalled(lastCameraFrame,now,!!stream,document.hidden)){
   if(!stalled){hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;stalled=true;overlayDirty=true;say('Video ngừng trả hình. Nhấn Khôi phục camera; trên iPhone hãy mở trang bằng Safari nếu đang dùng trình duyệt trong ứng dụng.');}
   status('CAMERA ĐỨNG HÌNH');
