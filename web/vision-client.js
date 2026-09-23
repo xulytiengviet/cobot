@@ -1,5 +1,6 @@
 import {timeout} from './camera.mjs';
-export async function createVision(){
+export async function createVision({signal}={}){
+ if(signal?.aborted){const e=new Error('AI startup canceled');e.name='AbortError';throw e;}
  let worker;
  if(typeof Worker!=='undefined'&&typeof createImageBitmap==='function'&&typeof OffscreenCanvas!=='undefined'){
   try{
@@ -8,7 +9,7 @@ export async function createVision(){
     worker.onmessage=({data})=>data.type==='ready'?resolve():reject(Error(data.message||'Worker init failed'));
     worker.onerror=e=>{e.preventDefault();reject(Error(e.message||'Worker unavailable'));};
     worker.postMessage({type:'init'});
-   }),60000,'Worker AI khởi tạo quá lâu');
+   }),60000,'Worker AI khởi tạo quá lâu',()=>{},signal);
    let pending=null,id=0,closed=false;
    worker.onmessage=({data})=>{
     if(!pending)return;
@@ -25,9 +26,9 @@ export async function createVision(){
      try{worker.postMessage({type:'frame',bitmap,now,id:request},[bitmap]);}catch(e){bitmap.close();clearTimeout(pending.timer);pending=null;reject(e);}
     });
    },close(){closed=true;worker.terminate();if(pending){clearTimeout(pending.timer);pending.reject(Error('AI đã đóng'));pending=null;}}};
-  }catch(e){worker?.terminate();console.warn('AI nền không khả dụng; dùng chế độ tương thích',e.message);}
+  }catch(e){worker?.terminate();if(signal?.aborted)throw e;console.warn('AI nền không khả dụng; dùng chế độ tương thích',e.message);}
  }
  const {createDetector}=await import('./vision-runtime.js');
- const detector=await timeout(createDetector(),60000,'AI khởi tạo quá lâu',late=>late.close());
+ const detector=await timeout(createDetector({signal}),60000,'AI khởi tạo quá lâu',late=>late.close(),signal);
  return {kind:'AI tương thích',async detect(canvas,now){const start=performance.now();return {result:detector.detectForVideo(canvas,now),ms:performance.now()-start};},close(){detector.close();}};
 }
