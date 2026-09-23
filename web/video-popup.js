@@ -1,10 +1,14 @@
 // One existing camera stream, rendered only after an explicit user action.
 export function videoPopup(video) {
  const $=id=>document.getElementById(id),panel=$('videoPopup'),toggle=$('toggleVideoPopup'),canvas=$('popupCanvas'),ctx=canvas.getContext('2d');
- const mobile=matchMedia('(max-width: 600px), (pointer: coarse) and (max-width: 950px)');
+ const mobile=matchMedia('(max-width: 600px), (pointer: coarse) and (max-width: 950px)'),slot=$('mobileVideoSlot');
+ const home=panel.parentElement;
  function place(){
-  panel.classList.toggle('compact',mobile.matches);panel.style.cssText='';
-  if(!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}
+  const dock=mobile.matches;
+  panel.classList.toggle('docked',dock);panel.classList.toggle('compact',dock);panel.style.cssText='';
+  if(dock&&panel.parentElement!==slot)slot.append(panel);
+  if(!dock&&panel.parentElement!==home)home.append(panel);
+  if(!dock&&!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}
   sizeLabel();
  }
  function sizeLabel(){
@@ -27,7 +31,7 @@ export function videoPopup(video) {
  function show(open,focus=false){
   panel.hidden=!open;toggle.setAttribute('aria-expanded',String(open));toggle.textContent=open?'Ẩn video nổi':'Hiện video nổi';
   lastTime=-1;ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(open){const r=panel.getBoundingClientRect();fit(r.x,r.y);if(focus)$('closeVideoPopup').focus();}
+  if(open){const r=panel.getBoundingClientRect();if(!panel.classList.contains('docked'))fit(r.x,r.y);if(focus)$('closeVideoPopup').focus();}
   else if(focus)toggle.focus({preventScroll:true});
  }
  toggle.onclick=()=>{if(active)show(panel.hidden,true);};
@@ -51,7 +55,8 @@ export function videoPopup(video) {
   const delta={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[e.key];if(!delta)return;
   e.preventDefault();const r=panel.getBoundingClientRect();fit(r.x,r.y,Math.max(240,r.width+delta[0]),Math.max(200,r.height+delta[1]));
  });
- addEventListener('resize',()=>{if(!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}});
+ addEventListener('resize',()=>{place();if(!panel.hidden&&!panel.classList.contains('docked')){const r=panel.getBoundingClientRect();fit(r.x,r.y);}});
+ globalThis.visualViewport?.addEventListener('resize',place);
  return {
   setActive(value){active=value;toggle.disabled=!value;if(!value)show(false);},
   draw(){
