@@ -10,7 +10,10 @@ import {sampleIsFresh,nextInterval,cameraStalled} from './live-policy.mjs';
 import {videoPopup} from './video-popup.js';
 const $=id=>document.getElementById(id),say=t=>$('message').textContent=t;
 const popup=videoPopup($('video'));
-const mobile=matchMedia('(pointer:coarse)').matches;
+if(matchMedia('(pointer:coarse), (max-width: 600px)').matches)$('performance').value='light';
+const mobile=matchMedia('(pointer:coarse), (max-width: 600px)').matches;
+let sceneInView=true;
+if(typeof IntersectionObserver!=='undefined')new IntersectionObserver(entries=>{sceneInView=entries[0]?.isIntersecting??true;},{rootMargin:'100px'}).observe($('scene'));
 const scene=new THREE.Scene();scene.background=new THREE.Color('#101a23');scene.fog=new THREE.Fog('#101a23',1.5,3.5);
 const camera=new THREE.PerspectiveCamera(38,1,.005,10);camera.up.set(0,0,1);
 let renderer;
@@ -259,15 +262,15 @@ function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previou
   if(!stalled){hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;stalled=true;overlayDirty=true;say('Video ngừng trả hình. Nhấn Khôi phục camera; trên iPhone hãy mở trang bằng Safari nếu đang dùng trình duyệt trong ứng dụng.');}
   status('CAMERA ĐỨNG HÌNH');
  }
- $('performanceStatus').textContent=stream?`${stalled?'Video đứng': 'Video đang chạy'} · ${landmarker?.kind||'AI chưa sẵn sàng'} · ${Math.round(inferenceMs)} ms / mẫu · tối đa ${Math.round(1000/interval)} mẫu/s`: 'Camera chưa bật';
+ $('performanceStatus').textContent=stream?[stalled?'Video đứng':'Video đang chạy',landmarker?.kind||'AI chưa sẵn sàng',Math.round(inferenceMs)+' ms AI',Math.round(acceptedDelay)+' ms xử lý',Math.round(1000/interval)+' mẫu/s',lastAcceptedFrameId?'Frame #'+lastAcceptedFrameId:'Chưa có mẫu'].join(' · '):'Camera chưa bật';
 
  try{detect(now);}catch(e){detectBusy=false;aiError(e);}
  if(stream&&!landmarker&&$('visibility').value==='full'&&now-lastFallbackDraw>200){overlayDirty=true;lastFallbackDraw=now;}
- if(!stalled&&stream&&landmarker&&!aiLoading&&now-lastSeen>700){hand=null;pose=null;loseHand(now);}
+ if(!stalled&&stream&&landmarker&&!aiLoading&&now-lastSeen>700){hand=null;pose=null;overlayDirty=true;loseHand(now);}
  if(ready&&!stopped&&!document.hidden){
   if(mode==='demo')target=limits.map(([lo,hi],i)=>clamp(Math.sin(now/2000+i*.6)*.42,lo,hi));
   const live=!!(hand&&pose&&reference&&!stalled&&now-lastSeen<=450&&(mode==='hand'||mode==='single'));
-  if(!live&&reference&&(mode==='hand'||mode==='single')&&now-lastSeen>450)freeze();
+  if(!live&&reference&&(mode==='hand'||mode==='single')&&now-lastSeen>450){freeze();$('syncState').textContent='ĐANG CHỜ MẪU';$('syncState').dataset.active='false';}
   // Live simulation consumes the latest accepted sample without a second lag filter.
   q=live?[...target]:advance(q,target,dt);
   const blend=1-Math.exp(-12*Math.min(dt,.05));
@@ -281,6 +284,6 @@ function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previou
  drawInput(hand);popup.draw();
  $('frameStatus').textContent=stream?(hand&&pose?`Mẫu tay ${lastVideoTime.toFixed(2)} s · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot và xương 3D giữ tư thế'):'Bật camera để nhận diện tay';
  const curls=fingerCurls(fingers);curls.forEach((v,i)=>{$('fbar'+i).value=v*100;$('f'+i).value=Math.round(v*100)+'%';});
- orbit.update();renderer.render(scene,camera);
+ if(sceneInView){orbit.update();renderer.render(scene,camera);}
 }
 requestAnimationFrame(frame);loadRobot().catch(e=>{$('modelStatus').textContent='LỖI TẢI MÔ HÌNH';say('Không tải được mô hình 3D. Kiểm tra mạng và tải lại trang.');console.error(e);});
