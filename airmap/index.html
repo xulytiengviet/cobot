@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#081a25">
+  <meta name="description" content="Vietflex AirMap: điều khiển OpenStreetMap và Google Maps bằng tay qua camera.">
+  <title>Vietflex AirMap · Bản đồ không chạm</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="./style.css?v=1">
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="./app.js?v=1"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="../" title="Về Cobot Lab"><span class="brand-symbol">⌁</span>VIETFLEX <b>AIRMAP</b></a>
+    <span id="cameraState" class="state" role="status">Chưa bật camera</span>
+    <button id="pauseBtn" class="emergency" type="button">■ Tạm dừng</button>
+  </header>
+  <section class="camera-dock" aria-label="Thiết lập camera và nhận diện tay">
+    <div class="camera-preview">
+      <video id="cameraVideo" autoplay muted playsinline webkit-playsinline disablepictureinpicture aria-hidden="true"></video>
+      <canvas id="cameraCanvas" width="240" height="160" aria-label="Xương tay nhận diện"></canvas>
+      <div id="gestureLabel" class="gesture-label">Đưa tay vào camera</div>
+    </div>
+    <div class="camera-controls">
+      <p class="instruction" id="instructions">Bật camera, mở bàn tay và giữ yên khoảng 1 giây để tự lấy mốc. Sau đó không cần chạm màn hình.</p>
+      <div class="toolbar">
+        <button id="cameraBtn" class="primary" type="button">◎ Bật camera</button>
+        <button id="calibrateBtn" type="button" disabled>✋ Lấy mốc tay</button>
+        <button id="resetBtn" type="button">↺ Lấy mốc lại</button>
+      </div>
+      <details class="settings" id="settings">
+        <summary>Thiết lập camera & Google Maps (chỉ cần lúc đầu)</summary>
+        <div class="settings-grid">
+          <label>Camera
+            <select id="cameraSelect"><option value="user">Camera trước</option><option value="environment">Camera sau</option></select>
+          </label>
+          <label>Hiển thị camera
+            <select id="previewMode"><option value="skeleton">Chỉ xương tay (riêng tư)</option><option value="full">Video kèm xương tay</option></select>
+          </label>
+          <label>Hiệu năng
+            <select id="performanceMode"><option value="light">Nhẹ · điện thoại</option><option value="auto">Tự động · máy tính</option></select>
+          </label>
+          <label>Google Maps JavaScript API key (tùy chọn)
+            <input id="googleKey" type="password" placeholder="Khóa giới hạn theo domain" autocomplete="off" spellcheck="false">
+          </label>
+          <button id="connectGoogle" type="button">Kết nối Google Maps đồng bộ trực tiếp</button>
+          <p class="helper">Không có API key: dùng khung Google Maps tương thích từ Xem Đường; thao tác chỉ đồng bộ sau khi tay dừng. Google Earth mở liên kết riêng.</p>
+        </div>
+      </details>
+    </div>
+    <div class="air-meter" aria-live="polite">
+      <strong id="gestureState">CHƯA LẤY MỐC</strong>
+      <small id="frameState">Frame — · AI — ms</small>
+      <small id="modeState">✋ Mở: di chuyển · 🤏 Chụm: gần/xa để zoom · ✌️: vệ tinh · ☝️: trỏ ảo · ✊: tạm dừng</small>
+    </div>
+  </section>
+  <main class="two-maps" id="twoMaps">
+    <section class="map-panel osm-panel" aria-label="Màn hình 1 OpenStreetMap">
+      <div class="map-heading">
+        <div class="map-name"><span class="map-number">01</span><span><b>OpenStreetMap</b><small>Di chuyển và zoom trực tiếp bằng tay</small></span></div>
+        <span class="linked">● SYNC</span>
+      </div>
+      <div id="osmMap" class="map-view" role="application" aria-label="Bản đồ OpenStreetMap"></div>
+      <div id="osmError" class="map-fallback" hidden>Không tải được Leaflet. Kiểm tra Internet và tải lại trang.</div>
+    </section>
+    <section class="map-panel google-panel" aria-label="Màn hình 2 Google Maps và Earth">
+      <div class="map-heading">
+        <div class="map-name"><span class="map-number">02</span><span><b>Google Maps / Earth</b><small id="googleModeLabel">Roadmap · chế độ tương thích</small></span></div>
+        <div class="map-actions">
+          <button id="satelliteBtn" type="button">◉ Vệ tinh</button>
+          <a id="earthLink" target="_blank" rel="noopener noreferrer" href="https://earth.google.com/web/">↗ Earth</a>
+        </div>
+      </div>
+      <div id="googleMap" class="map-view" role="application" aria-label="Bản đồ Google Maps"></div>
+      <div id="googleNote" class="map-fallback" aria-live="polite">Đang tải khung Google Maps tương thích…</div>
+    </section>
+  </main>
+  <section class="bottom-controls" aria-label="Điều khiển thay thế">
+    <div><strong id="coordinates">10.825907, 106.614439</strong><span id="zoomValue">Zoom 16</span></div>
+    <form id="locationForm" class="location-form">
+      <input id="locationInput" aria-label="Tọa độ hoặc liên kết Google Maps" placeholder="Tọa độ hoặc URL Google Maps…" autocomplete="off">
+      <button type="submit">Đến vị trí</button>
+    </form>
+    <p>Tay không chạm điều khiển <b>trong trang AirMap</b>; trình duyệt không được phép điều khiển toàn bộ hệ điều hành điện thoại. Mất tay: bản đồ đứng yên.</p>
+  </section>
+  <div id="airCursor" class="air-cursor" hidden aria-hidden="true"><span></span></div>
+  <noscript>AirMap cần JavaScript và HTTPS để dùng camera.</noscript>
+</body></html>
