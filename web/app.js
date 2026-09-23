@@ -93,23 +93,46 @@ $('calibrate').onclick=()=>{
 };
 $('focusHand').onclick=()=>{if(!ready)return;const pos=robotHand.group.localToWorld(new THREE.Vector3(0,.05,0));orbit.minDistance=.09;orbit.target.copy(pos);camera.position.copy(pos).add(new THREE.Vector3(.17,-.20,.12));orbit.update();};
 function drawInput(points){
+ if(!overlayDirty)return;
+ overlayDirty=false;
  const c=$('overlay'),ctx=c.getContext('2d'),v=$('video'),display=$('visibility').value;
- if(c.width!==640||c.height!==480){c.width=640;c.height=480;}ctx.clearRect(0,0,640,480);ctx.fillStyle='#080e13';ctx.fillRect(0,0,640,480);
- if(!points){if(display==='full'&&stream&&v.readyState>=2){ctx.save();ctx.translate(640,0);ctx.scale(-1,1);ctx.drawImage(v,0,0,640,480);ctx.restore();}return;}
+ if(c.width!==640||c.height!==480){c.width=640;c.height=480;}
+ ctx.clearRect(0,0,640,480);ctx.fillStyle='#080e13';ctx.fillRect(0,0,640,480);
+ const src=previewFrame.width?previewFrame:v;
+ const sw=src.videoWidth||src.width,sh=src.videoHeight||src.height;
+ const available=sw>0&&sh>0&&(src!==v||v.readyState>=2);
+ if(!points){
+  if(display==='full'&&available){
+   ctx.save();ctx.translate(640,0);ctx.scale(-1,1);
+   ctx.drawImage(src,0,0,sw,sh,0,0,640,480);ctx.restore();
+  }
+  return;
+ }
+ if(!available)return;
  let minX=0,minY=0,maxX=1,maxY=1;
- if(display!=='full'){minX=Math.min(...points.map(p=>p.x));maxX=Math.max(...points.map(p=>p.x));minY=Math.min(...points.map(p=>p.y));maxY=Math.max(...points.map(p=>p.y));const cx=(minX+maxX)/2,cy=(minY+maxY)/2;const h=Math.max(maxY-minY,(maxX-minX)*v.videoWidth/v.videoHeight)*1.4;minY=Math.max(0,cy-h/2);maxY=Math.min(1,cy+h/2);const w=(maxY-minY)*4/3*v.videoHeight/v.videoWidth;minX=Math.max(0,cx-w/2);maxX=Math.min(1,cx+w/2);}
- const width=Math.max(maxX-minX,.001),height=Math.max(maxY-minY,.001),aspect=width*v.videoWidth/(height*v.videoHeight);
- const dw=Math.min(640,480*aspect),dh=dw/aspect,ox=(640-dw)/2,oy=(480-dh)/2;
+ if(display!=='full'){
+  const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
+  const cx=(Math.min(...xs)+Math.max(...xs))/2,cy=(Math.min(...ys)+Math.max(...ys))/2;
+  const bboxW=Math.max(...xs)-Math.min(...xs),bboxH=Math.max(...ys)-Math.min(...ys);
+  const h=Math.max(bboxH,bboxW*sw/sh)*1.45;
+  minY=Math.max(0,cy-h/2);maxY=Math.min(1,cy+h/2);
+  const w=(maxY-minY)*4/3*sh/sw;
+  minX=Math.max(0,cx-w/2);maxX=Math.min(1,cx+w/2);
+ }
+ const width=Math.max(maxX-minX,.001),height=Math.max(maxY-minY,.001);
+ const aspect=width*sw/(height*sh),dw=Math.min(640,480*aspect),dh=dw/aspect,ox=(640-dw)/2,oy=(480-dh)/2;
  ctx.save();ctx.translate(640,0);ctx.scale(-1,1);
- if(display!=='skeleton'&&v.readyState>=2)ctx.drawImage(v,minX*v.videoWidth,minY*v.videoHeight,width*v.videoWidth,height*v.videoHeight,ox,oy,dw,dh);
- const xy=p=>[ox+(p.x-minX)/width*dw,oy+(p.y-minY)/height*dh];ctx.strokeStyle='#80f1c6';ctx.lineWidth=3;
+ if(display!=='skeleton')ctx.drawImage(src,minX*sw,minY*sh,width*sw,height*sh,ox,oy,dw,dh);
+ const xy=p=>[ox+(p.x-minX)/width*dw,oy+(p.y-minY)/height*dh];
+ ctx.strokeStyle='#80f1c6';ctx.lineWidth=3;
  for(const [a,b]of connections){ctx.beginPath();ctx.moveTo(...xy(points[a]));ctx.lineTo(...xy(points[b]));ctx.stroke();}
- for(const p of points){ctx.beginPath();ctx.arc(...xy(p),4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();}ctx.restore();
+ for(const p of points){ctx.beginPath();ctx.arc(...xy(p),4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();}
+ ctx.restore();
 }
 $('visibility').onchange=()=>{
  const display=$('visibility').value;
  $('privacyNote').textContent=display==='skeleton'?'Ẩn toàn bộ video; camera vẫn nhận diện tay.':display==='crop'?'Chỉ cắt vùng tay; nền phía sau tay vẫn có thể xuất hiện.':'Đang hiển thị toàn bộ hình camera.';
- drawInput(hand);
+ overlayDirty=true;drawInput(hand);
 };
 function forwardPosition(angles){joints.forEach(({child,axis},i)=>child.quaternion.setFromAxisAngle(axis,angles[i]));root.updateMatrixWorld(true);return links.L6.getWorldPosition(new THREE.Vector3()).toArray();}
 let sampleEpoch=0;
