@@ -30,7 +30,7 @@ const ring=new THREE.Mesh(new THREE.RingGeometry(.38,.381,128),new THREE.MeshBas
 const root=new THREE.Group();scene.add(root);
 const links={},joints=[],limits=[];let q=Array(6).fill(0),target=[...q],ready=false,stopped=false,mode='manual';
 let pose=null,referencePose=null,referencePosition=null,side=null,referenceSide=null,stableFrames=0;
-let lastAcceptedFrameId=0,lastAcceptedAt=0,acceptedDelay=0,overlayDirty=true;
+let lastAcceptedFrameId=0,lastAcceptedAt=0,lastAcceptedMediaTime=0,acceptedDelay=0,overlayDirty=true;
 let fingers=OPEN_HAND.map(p=>[...p]),fingerTarget=OPEN_HAND.map(p=>[...p]);
 let stream=null,landmarker=null,starting=false,session=0,lastVideoTime=-1,lastSeen=0,lastDetection=0,hand=null,reference=null,referenceAngles=null;
 const labels=['Đế','Vai','Khuỷu','Cẳng tay','Cổ tay','Mặt bích'];
@@ -147,9 +147,9 @@ function aiError(e){sampleEpoch++;detectBusy=false;hand=null;pose=null;freeze();
 
 function releaseCamera(){
  popup.setActive(false);session++;sampleEpoch++;detectBusy=false;
- stopFrameWatch?.();stopFrameWatch=null;observedFrameId=0;lastSubmittedFrameId=-1;
+ stopFrameWatch?.();stopFrameWatch=null;observedFrameId=0;lastSubmittedFrameId=-1;lastAcceptedFrameId=0;acceptedDelay=0;
  landmarker?.close();landmarker=null;stalled=false;starting=false;
- stopStream(stream);stream=null;$('video').srcObject=null;
+ stopStream(stream);stream=null;$('video').pause();$('video').srcObject=null;
  hand=null;pose=null;stableFrames=0;freeze();clearReference();
  previewFrame.width=0;previewFrame.height=0;overlayDirty=true;drawInput(null);
  $('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;
@@ -200,10 +200,11 @@ function detect(now){
  const video=$('video');
  if(document.hidden||stalled||!stream||aiLoading||!landmarker||detectBusy||video.readyState<2||now-lastDetection<interval)return;
  if(stopFrameWatch?observedFrameId<=lastSubmittedFrameId:video.currentTime===lastVideoTime)return;
- const capturedAt=performance.now(),token=session,epoch=sampleEpoch,detector=landmarker;
+ const capturedAt=performance.now(),token=session,epoch=sampleEpoch,detector=landmarker,mediaTime=video.currentTime;
  const frameId=stopFrameWatch?observedFrameId:++observedFrameId;
  lastSubmittedFrameId=frameId;lastDetection=now;lastVideoTime=video.currentTime;detectBusy=true;
- const scale=Math.min(1,480/Math.max(video.videoWidth,video.videoHeight));
+ const captureLimit=mobile&&$('performance').value==='light'?320:480;
+ const scale=Math.min(1,captureLimit/Math.max(video.videoWidth,video.videoHeight));
  const width=Math.max(1,Math.round(video.videoWidth*scale)),height=Math.max(1,Math.round(video.videoHeight*scale));
  if(sampleCanvas.width!==width||sampleCanvas.height!==height){sampleCanvas.width=width;sampleCanvas.height=height;}
  sampleContext.drawImage(video,0,0,width,height);
@@ -214,7 +215,7 @@ function detect(now){
   acceptedDelay=performance.now()-capturedAt;
   if(previewFrame.width!==width||previewFrame.height!==height){previewFrame.width=width;previewFrame.height=height;}
   previewContext.drawImage(sampleCanvas,0,0,width,height);
-  lastAcceptedFrameId=frameId;lastAcceptedAt=performance.now();overlayDirty=true;
+  lastAcceptedFrameId=frameId;lastAcceptedAt=performance.now();lastAcceptedMediaTime=mediaTime;overlayDirty=true;
   acceptSample(result,lastAcceptedAt);
  }).catch(e=>{if(token===session&&detector===landmarker)aiError(e);})
  .finally(()=>{if(epoch===sampleEpoch)detectBusy=false;});
@@ -242,8 +243,9 @@ function acceptSample(result,now){
   }
  }else{hand=null;pose=null;loseHand(now);}
 }
+function trackingGrace(){return Math.min(2400,Math.max(900,interval+inferenceMs+350));}
 function loseHand(now){stableFrames=0;if(mode==='hand'||mode==='single')freeze();
- if(reference){$('syncState').textContent='GIỮ TƯ THẾ';$('syncState').dataset.active='false';if(now-lastSeen>700){clearReference();say('Mất dấu tay: đã giữ tư thế. Đưa tay trở lại và lấy mốc mới.');}}
+ if(reference){$('syncState').textContent='GIỮ TƯ THẾ';$('syncState').dataset.active='false';if(now-lastSeen>trackingGrace()){clearReference();say('Mất dấu tay: đã giữ tư thế. Đưa tay trở lại và lấy mốc mới.');}}
  $('calibrate').disabled=true;status('KHÔNG THẤY TAY');if(!reference)say('Đưa một bàn tay vào khung hình, giữ ổn định rồi lấy mốc.');
 }
 addEventListener('pagehide',releaseCamera);document.addEventListener('visibilitychange',()=>{
@@ -266,7 +268,7 @@ function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previou
 
  try{detect(now);}catch(e){detectBusy=false;aiError(e);}
  if(stream&&!landmarker&&$('visibility').value==='full'&&now-lastFallbackDraw>200){overlayDirty=true;lastFallbackDraw=now;}
- if(!stalled&&stream&&landmarker&&!aiLoading&&now-lastSeen>700){hand=null;pose=null;overlayDirty=true;loseHand(now);}
+ if(!stalled&&stream&&landmarker&&!aiLoading&&now-lastSeen>trackingGrace()){hand=null;pose=null;overlayDirty=true;loseHand(now);}
  if(ready&&!stopped&&!document.hidden){
   if(mode==='demo')target=limits.map(([lo,hi],i)=>clamp(Math.sin(now/2000+i*.6)*.42,lo,hi));
   const live=!!(hand&&pose&&reference&&!stalled&&now-lastSeen<=450&&(mode==='hand'||mode==='single'));
@@ -282,7 +284,7 @@ function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previou
  robotHand.group.getWorldQuaternion(handRotation);
  if(pose&&!stalled&&now-lastSeen<=700)skeleton.update(pose.local,pose.viewQuaternion);else skeleton.update(fingers,handRotation);
  drawInput(hand);popup.draw();
- $('frameStatus').textContent=stream?(hand&&pose?`Mẫu tay ${lastVideoTime.toFixed(2)} s · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot và xương 3D giữ tư thế'):'Bật camera để nhận diện tay';
+ $('frameStatus').textContent=stream?(hand&&pose?`Frame #${lastAcceptedFrameId} · ${lastAcceptedMediaTime.toFixed(2)} s · trễ ${Math.round(acceptedDelay)} ms · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot và xương 3D giữ tư thế'):'Bật camera để nhận diện tay';
  const curls=fingerCurls(fingers);curls.forEach((v,i)=>{$('fbar'+i).value=v*100;$('f'+i).value=Math.round(v*100)+'%';});
  if(sceneInView){orbit.update();renderer.render(scene,camera);}
 }
