@@ -2,7 +2,7 @@ name: Deploy Cobot Lab
 on:
   push:
     branches: [main]
-    paths: ['index.html', 'web/**', 'tests/**', 'PAROL6_URDF/**', '.github/workflows/pages.yml']
+    paths: ['index.html', 'web/**', 'tests/**', 'scripts/**', 'PAROL6_URDF/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,7 +22,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test tests/control.test.mjs
+      - run: node --test tests/*.test.mjs
+      - name: Download verified AI assets
+        run: python scripts/prepare-vision.py
+      - name: Test camera and AI in Chromium
+        env:
+          COBOT_PLAYWRIGHT: /tmp/cobot-qa/node_modules/playwright
+        run: |
+          npm install --prefix /tmp/cobot-qa playwright@1.51.1
+          /tmp/cobot-qa/node_modules/.bin/playwright install --with-deps chromium
+          python -m http.server 8000 > /tmp/cobot-http.log 2>&1 &
+          node tests/camera-browser.cjs
       - uses: actions/configure-pages@v5
       - name: Stage web assets
         run: |

@@ -5,7 +5,7 @@ Trang `index.html` chạy trực tiếp trên GitHub Pages, không cần backend
 ## Chạy
 
 - GitHub: Settings → Pages → Source: **GitHub Actions**. Workflow `Deploy Cobot Lab` sẽ triển khai trang khi push lên main; có thể chạy thủ công trong Actions.
-- Máy tính: tại thư mục repo, chạy `python -m http.server 8000`, mở `http://localhost:8000`.
+- Máy tính: tại thư mục repo, chạy `python scripts/prepare-vision.py`, sau đó `python -m http.server 8000`, mở `http://localhost:8000`.
 - Camera cần HTTPS hoặc localhost, không mở bằng `file://`. Cần Internet để tải Three.js, MediaPipe và mô hình tay. Không yêu cầu API key.
 
 ## Điều khiển
@@ -32,3 +32,9 @@ Video không được gửi lên máy chủ bởi ứng dụng. Trình duyệt t
 ## Nguồn và giấy phép
 
 PAROL6: Source Robotics / PCrnjak; giữ LICENSE GPL-3.0 của kho mã nguồn. Phần mô phỏng bổ sung được cung cấp theo cùng GPL-3.0. Three.js: MIT; MediaPipe: Apache-2.0. Các thư viện tải riêng qua CDN, không thay đổi giấy phép của mô hình / mã gốc.
+
+## Bản sửa camera 23/09/2026
+
+Camera được mở và kiểm tra có khung hình trước khi tải AI. Các tệp MediaPipe và mô hình được tải, kiểm tra SHA-256 trong bước triển khai rồi phục vụ từ chính GitHub Pages. Khi AI lỗi, camera tiếp tục hiển thị và có nút **Thử lại AI**. Giao diện có chọn thiết bị; tắt camera trước khi đổi thiết bị. Lỗi quyền, camera đang bận, không có camera và quá thời gian được phân biệt, kèm mã lỗi. Có thời hạn chờ và giải phóng luồng camera đến muộn sau khi người dùng hủy.
+
+Workflow chạy `node --test tests/*.test.mjs` và kiểm thử Chromium với camera giả lập: khởi tạo MediaPipe thật, suy luận video, giữ camera khi tải mô hình thất bại và thử lại thành công. Kiểm thử này không thay thế kiểm tra driver/camera thật trên laptop.

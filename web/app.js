@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {features,handTargets,advance,clamp} from './control.mjs';
+import {cameraError,timeout,stopStream,acquireCamera,waitForVideo} from './camera.mjs';
 const $=id=>document.getElementById(id),say=t=>$('message').textContent=t;
 const scene=new THREE.Scene();scene.background=new THREE.Color('#101a23');scene.fog=new THREE.Fog('#101a23',1.5,3.5);
 const camera=new THREE.PerspectiveCamera(38,1,.005,10);camera.up.set(0,0,1);
@@ -61,29 +62,55 @@ $('home').onclick=()=>{if(stopped)return;setMode('manual');target=Array(6).fill(
 $('save').onclick=()=>{try{localStorage.setItem('cobot-pose-v1',JSON.stringify(q));say('Đã lưu tư thế trong trình duyệt.');}catch{say('Trình duyệt không cho phép lưu tư thế.');}};
 $('restore').onclick=()=>{if(stopped||!ready)return;try{const saved=JSON.parse(localStorage.getItem('cobot-pose-v1'));if(!Array.isArray(saved)||saved.length!==6||!saved.every(Number.isFinite))throw Error();setMode('manual');target=saved.map((v,i)=>clamp(v,...limits[i]));say('Đang khôi phục tư thế đã lưu.');}catch{say('Chưa có tư thế hợp lệ được lưu.');}};
 $('calibrate').onclick=()=>{if(!hand||stopped||!ready)return;if(mode!=='hand'&&mode!=='single')setMode('hand');reference=features(hand);referenceAngles=[...q];freeze();say('Đã lấy mốc. Di chuyển tay chậm để điều khiển.');};
-function releaseCamera(){session++;stream?.getTracks().forEach(t=>t.stop());stream=null;$('video').srcObject=null;hand=null;freeze();clearReference();$('camera').textContent='Bật camera';$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
-$('camera').onclick=async()=>{
- if(stream){releaseCamera();say('Đã tắt camera.');return;}if(starting)return;
- if(!window.isSecureContext||!navigator.mediaDevices){say('Camera cần HTTPS hoặc localhost. Hãy mở bằng GitHub Pages.');return;}
- starting=true;$('camera').disabled=true;status('ĐANG TẢI');const token=++session;
+let aiLoading=false;
+function releaseCamera(){session++;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;freeze();clearReference();$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
+async function refreshDevices(){
+ try{const current=$('cameraSelect').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');$('cameraSelect').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));$('cameraSelect').value=current;}catch(error){console.warn('Cannot list cameras',error);}
+}
+async function startAI(token){
+ if(aiLoading){$('retryAI').hidden=false;say('AI đang hoàn tất lần tải trước. Nhấn Thử lại AI khi nút sẵn sàng.');return;}aiLoading=true;$('retryAI').disabled=true;$('retryAI').hidden=false;
  try{
+  status('CAMERA OK · TẢI AI');say('Camera đã mở. Đang tải nhận diện tay (~18 MB lần đầu)…');
   if(!landmarker){
-   say('Đang tải mô hình nhận diện tay. Lần đầu cần Internet…');
-   const {HandLandmarker,FilesetResolver}=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/vision_bundle.mjs');
-   const files=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm');
-   landmarker=await HandLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'},runningMode:'VIDEO',numHands:1,minHandDetectionConfidence:.65,minHandPresenceConfidence:.65,minTrackingConfidence:.65});
+   const {HandLandmarker}=await timeout(import('./vendor/mediapipe/vision_bundle.mjs'),30000,'Không tải được thư viện AI');
+   if(token!==session)return;
+   const base=new URL('./vendor/mediapipe/',import.meta.url);
+   const response=await fetch(new URL('hand_landmarker.task',base),{signal:AbortSignal.timeout(45000)});
+   if(!response.ok)throw Error(`Tệp mô hình AI: HTTP ${response.status}`);
+   const modelAssetBuffer=new Uint8Array(await response.arrayBuffer());
+   if(token!==session)return;
+   const {FilesetResolver}=await import('./vendor/mediapipe/vision_bundle.mjs');
+   const files=await FilesetResolver.forVisionTasks(base.href.replace(/\/$/,''));
+   const detector=await timeout(HandLandmarker.createFromOptions(files,{baseOptions:{modelAssetBuffer,delegate:'CPU'},runningMode:'VIDEO',numHands:1,minHandDetectionConfidence:.65,minHandPresenceConfidence:.65,minTrackingConfidence:.65}),45000,'Khởi tạo AI quá thời gian',late=>late.close());
+   if(token!==session){detector.close();return;}landmarker=detector;
   }
   if(token!==session)return;
-  const candidate=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false});
-  if(token!==session){candidate.getTracks().forEach(t=>t.stop());return;}stream=candidate;
-  stream.getVideoTracks()[0].onended=()=>{if(stream){releaseCamera();say('Camera đã ngắt.');}};
-  $('video').srcObject=stream;await $('video').play();lastVideoTime=-1;$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('TÌM BÀN TAY');setMode('hand');
- }catch(e){releaseCamera();say(e.name==='NotAllowedError'?'Camera bị từ chối. Cho phép camera tại biểu tượng cạnh địa chỉ rồi thử lại.':e.name==='NotFoundError'?'Không tìm thấy camera trên thiết bị.':'Không thể khởi động camera / mô hình AI. Kiểm tra mạng và camera rồi thử lại.');console.error(e);}
- finally{starting=false;$('camera').disabled=false;}
+  $('retryAI').hidden=true;status('AI SẴN SÀNG');setMode('hand');
+ }catch(error){
+  if(token!==session)return;
+  status('CAMERA OK · AI LỖI');say(`Camera vẫn hoạt động; nhận diện tay chưa sẵn sàng. Nhấn Thử lại AI. Chi tiết: ${error.message}`);console.error('Hand detector initialization',error);
+ }finally{aiLoading=false;$('retryAI').disabled=false;}
+}
+$('retryAI').onclick=()=>{if(stream)startAI(session);};
+$('camera').onclick=async()=>{
+ if(stream||starting){releaseCamera();say('Đã tắt camera.');return;}
+ if(!window.isSecureContext||!navigator.mediaDevices){say('Camera cần HTTPS hoặc localhost. Hãy mở bằng GitHub Pages.');return;}
+ starting=true;$('camera').textContent='Hủy mở camera';$('cameraSelect').disabled=true;status('ĐANG MỞ CAMERA');say('Đang mở camera. Chấp nhận yêu cầu quyền truy cập nếu Chrome hiển thị.');const token=++session;
+ try{
+  const candidate=await acquireCamera(navigator.mediaDevices,$('cameraSelect').value);
+  if(token!==session){stopStream(candidate);return;}stream=candidate;
+  stream.getVideoTracks()[0].onended=()=>{if(token===session){releaseCamera();say('Camera đã ngắt. Bật camera để kết nối lại.');}};
+  const video=$('video');video.srcObject=stream;
+  await timeout(video.play(),12000,'Video playback timeout');await waitForVideo(video);
+  if(token!==session)return;
+  lastVideoTime=-1;lastSeen=performance.now();$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
+  await refreshDevices();startAI(token);
+ }catch(error){if(token===session){releaseCamera();status('CAMERA LỖI');say(cameraError(error));console.error('Camera startup',error);}}
+ finally{if(token===session){starting=false;$('camera').disabled=false;}}
 };
 const connections=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
 function detect(now){
- const video=$('video');if(!stream||!landmarker||video.readyState<2||video.currentTime===lastVideoTime||now-lastDetection<50)return;
+ const video=$('video');if(!stream||aiLoading||!landmarker||video.readyState<2||video.currentTime===lastVideoTime||now-lastDetection<50)return;
  lastVideoTime=video.currentTime;lastDetection=now;
  const result=landmarker.detectForVideo(video,now);hand=result.landmarks[0]||null;
  const canvas=$('overlay');if(canvas.width!==video.videoWidth){canvas.width=video.videoWidth;canvas.height=video.videoHeight;}
@@ -101,8 +128,8 @@ addEventListener('pagehide',releaseCamera);document.addEventListener('visibility
 new ResizeObserver(()=>{const r=$('scene').getBoundingClientRect();renderer.setSize(r.width,r.height);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();}).observe($('scene'));
 let previous=performance.now();const position=new THREE.Vector3();
 function frame(now){requestAnimationFrame(frame);const dt=(now-previous)/1000;previous=now;
- try{detect(now);}catch(e){releaseCamera();say('Nhận diện gặp lỗi. Bật lại camera để thử lại.');console.error(e);}
- if(stream&&now-lastSeen>300&&(mode==='hand'||mode==='single'))loseHand();
+ try{detect(now);}catch(e){hand=null;freeze();clearReference();landmarker?.close();landmarker=null;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say(`Camera vẫn mở. Nhận diện gặp lỗi: ${e.message}. Nhấn Thử lại AI.`);console.error(e);}
+ if(stream&&landmarker&&!aiLoading&&now-lastSeen>300&&(mode==='hand'||mode==='single'))loseHand();
  if(ready&&!stopped&&!document.hidden){
   if(mode==='demo')target=limits.map(([lo,hi],i)=>clamp(Math.sin(now/2000+i*.6)*.42,lo,hi));
   q=advance(q,target,dt);
