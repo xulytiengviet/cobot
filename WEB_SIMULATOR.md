@@ -48,3 +48,6 @@ Khung thị giác là quan sát trực tiếp; trước khi lấy mốc hoặc k
 - Watchdog phân biệt video ngừng chạy trên 2,5 giây với AI không thấy tay. Khôi phục camera đóng stream cũ, mở lại và yêu cầu lấy mốc mới. Khi chuyển tab, vô hiệu mốc và kết quả đang chờ.
 - Nếu dùng trình duyệt trong ứng dụng trên iPhone và camera bị treo, mở URL bằng Safari rồi bật lại camera. Chế độ ẩn video vẫn mặc định.
 - Jev: xem [trợ lý máy tính](integrations/jev/README.md). Không cần khóa API cho camera hoặc chính sách tối ưu cục bộ.
+
+## Bố cục điện thoại (LAB 08)
+Khi bật video trên màn hình nhỏ, khung video nằm trong trang ngay phía trên Bật/Tắt camera và Lấy mốc tay, không phủ lên các nút. Chiều cao video giới hạn theo màn hình, thao tác cuộn vẫn hoạt động. Trên máy tính video vẫn là cửa sổ nổi kéo/đổi kích thước. Chuyển kích thước màn hình tự đổi bố cục, dùng cùng luồng camera và không xóa mốc.

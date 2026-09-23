@@ -1,8 +1,17 @@
 // One existing camera stream, rendered only after an explicit user action.
 export function videoPopup(video) {
  const $=id=>document.getElementById(id),panel=$('videoPopup'),toggle=$('toggleVideoPopup'),canvas=$('popupCanvas'),ctx=canvas.getContext('2d');
+ const mobile=matchMedia('(max-width: 600px), (pointer: coarse) and (max-width: 950px)');
+ const originalParent=panel.parentElement;
+ function place(){
+  if(mobile.matches){$('mobileVideoSlot').append(panel);panel.style.cssText='';}
+  else{originalParent.append(panel);if(!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}}
+  $('popupHandle').querySelector('small').textContent=mobile.matches?'Lấy mốc tay ngay bên dưới':'Kéo để di chuyển';
+ }
+ mobile.addEventListener('change',place);place();
  let active=false,lastTime=-1;
  function fit(x,y,w=panel.offsetWidth,h=panel.offsetHeight){
+  if(mobile.matches)return;
   w=Math.min(w,innerWidth-16);h=Math.min(h,innerHeight-16);
   Object.assign(panel.style,{width:w+'px',height:h+'px',left:Math.max(8,Math.min(x,innerWidth-w-8))+'px',top:Math.max(8,Math.min(y,innerHeight-h-8))+'px',right:'auto',bottom:'auto'});
  }
@@ -10,7 +19,7 @@ export function videoPopup(video) {
   panel.hidden=!open;toggle.setAttribute('aria-expanded',String(open));toggle.textContent=open?'Ẩn video nổi':'Hiện video nổi';
   lastTime=-1;ctx.clearRect(0,0,canvas.width,canvas.height);
   if(open){const r=panel.getBoundingClientRect();fit(r.x,r.y);if(focus)$('closeVideoPopup').focus();}
-  else if(focus)toggle.focus();
+  else if(focus)toggle.focus({preventScroll:true});
  }
  toggle.onclick=()=>{if(active)show(panel.hidden,true);};
  $('closeVideoPopup').onclick=()=>show(false,true);
@@ -18,7 +27,7 @@ export function videoPopup(video) {
  function gesture(handle,resize){
   let start=null;
   handle.addEventListener('pointerdown',e=>{
-   if(e.button!==0||e.target.closest('button'))return;
+   if(mobile.matches||e.button!==0||e.target.closest('button'))return;
    const r=panel.getBoundingClientRect();start={id:e.pointerId,x:e.clientX,y:e.clientY,r};handle.setPointerCapture(e.pointerId);e.preventDefault();
   });
   handle.addEventListener('pointermove',e=>{

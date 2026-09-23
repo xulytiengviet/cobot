@@ -124,7 +124,16 @@ const assert=require('node:assert/strict');
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'_qa/hand-mobile.png',fullPage:true});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-  const mobile=await page.locator('#videoPopup').boundingBox();assert(mobile.x>=0&&mobile.x+mobile.width<=390&&mobile.y+mobile.height<=844);
+  // On phones video is docked immediately above controls, never layered over them.
+  await page.locator('#calibrate').scrollIntoViewIfNeeded();
+  const mobile=await page.locator('#videoPopup').boundingBox(),calibration=await page.locator('#calibrate').boundingBox();
+  assert(mobile.x>=0&&mobile.x+mobile.width<=390);
+  assert(mobile.y+mobile.height<=calibration.y,'Video must not overlap calibration');
+  assert(await page.locator('#calibrate').evaluate(el=>{const r=el.getBoundingClientRect();const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===el||el.contains(hit);}), 'Calibration must be uncovered');
+  await page.locator('#calibrate').click();
+  await page.waitForFunction(()=>document.querySelector('#syncState').textContent==='● ĐỒNG BỘ');
+  assert(await page.locator('#videoPopup').isVisible(),'Calibration keeps video open');
+  await page.screenshot({path:'_qa/mobile-calibration.png',fullPage:true});
   await page.locator('#closeVideoPopup').click();
   await page.locator('#camera').click();
   assert(await page.locator('#videoPopup').isHidden());assert(await page.locator('#toggleVideoPopup').isDisabled());
