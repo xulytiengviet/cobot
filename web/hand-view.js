@@ -18,9 +18,14 @@ export function makeHand(robot=false){
 }
 export function skeletonPreview(container){
  const scene=new THREE.Scene();scene.background=new THREE.Color('#080e13');
- const camera=new THREE.PerspectiveCamera(38,1,.005,2);camera.position.set(.09,.11,.25);camera.lookAt(0,.052,0);
+ const camera=new THREE.PerspectiveCamera(38,1,.005,2);camera.up.set(0,0,1);const center=new THREE.Vector3(),offset=new THREE.Vector3(.12,-.18,.16);
  const hand=makeHand();scene.add(hand.group);scene.add(new THREE.HemisphereLight(0xffffff,0x344a55,3));
  const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));container.append(renderer.domElement);
  const observer=new ResizeObserver(()=>{const r=container.getBoundingClientRect();renderer.setSize(r.width,r.height);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();});observer.observe(container);
- return {update(points){hand.update(points);renderer.render(scene,camera);}};
+ return {update(points,orientation){
+  hand.update(points);if(orientation)hand.group.quaternion.copy(orientation);
+  center.set(0,.052,0).applyQuaternion(hand.group.quaternion);
+  camera.position.copy(center).add(offset);camera.lookAt(center);
+  renderer.render(scene,camera);
+ }};
 }

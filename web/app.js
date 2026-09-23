@@ -158,12 +158,11 @@ $('camera').onclick=async()=>{
 };
 const connections=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
 function detect(now){
- const video=$('video');if(!stream||aiLoading||!landmarker||video.readyState<2||video.currentTime===lastVideoTime||now-lastDetection<50)return;
+ const video=$('video');if(!stream||aiLoading||!landmarker||video.readyState<2||video.currentTime===lastVideoTime)return;
  lastVideoTime=video.currentTime;lastDetection=now;
  const result=landmarker.detectForVideo(video,now);hand=result.landmarks[0]||null;
  side=result.handedness?.[0]?.[0]?.categoryName||'Unknown';
  pose=hand?handPose(hand,result.worldLandmarks?.[0]):null;
- drawInput(hand);
  if(hand&&pose){
   const wasLost=stableFrames===0;stableFrames++;
   if(referenceSide&&side!==referenceSide){freeze();clearReference();say('Đã đổi bàn tay. Lấy mốc mới để tiếp tục.');}
@@ -188,18 +187,24 @@ function loseHand(now){stableFrames=0;if(mode==='hand'||mode==='single')freeze()
 }
 addEventListener('pagehide',releaseCamera);document.addEventListener('visibilitychange',()=>{if(document.hidden){freeze();clearReference();}});
 new ResizeObserver(()=>{const r=$('scene').getBoundingClientRect();renderer.setSize(r.width,r.height);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();}).observe($('scene'));
-let previous=performance.now();const position=new THREE.Vector3();
+let previous=performance.now();const position=new THREE.Vector3(),handRotation=new THREE.Quaternion();
 function frame(now){requestAnimationFrame(frame);const dt=(now-previous)/1000;previous=now;
- popup.draw();
- try{detect(now);}catch(e){hand=null;freeze();clearReference();landmarker?.close();landmarker=null;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say(`Camera vẫn mở. Nhận diện gặp lỗi: ${e.message}. Nhấn Thử lại AI.`);console.error(e);}
+ try{detect(now);}catch(e){hand=null;pose=null;freeze();clearReference();landmarker?.close();landmarker=null;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say(`Camera vẫn mở. Nhận diện gặp lỗi: ${e.message}. Nhấn Thử lại AI.`);console.error(e);}
  if(stream&&landmarker&&!aiLoading&&now-lastSeen>300&&(mode==='hand'||mode==='single'))loseHand(now);
  if(ready&&!stopped&&!document.hidden){
   if(mode==='demo')target=limits.map(([lo,hi],i)=>clamp(Math.sin(now/2000+i*.6)*.42,lo,hi));
-  q=advance(q,target,dt);
-  const blend=1-Math.exp(-12*Math.min(dt,.05));fingers=fingers.map((p,i)=>p.map((v,j)=>v+(fingerTarget[i][j]-v)*blend));
+  const live=!!(hand&&pose&&reference&&(mode==='hand'||mode==='single'));
+  // Live simulation consumes the latest accepted sample without a second lag filter.
+  q=live?[...target]:advance(q,target,dt);
+  const blend=1-Math.exp(-12*Math.min(dt,.05));
+  fingers=live?fingerTarget.map(p=>[...p]):fingers.map((p,i)=>p.map((v,j)=>v+(fingerTarget[i][j]-v)*blend));
  }
  if(ready){joints.forEach(({child,axis},i)=>{child.quaternion.setFromAxisAngle(axis,q[i]);$('j'+i).value=String(q[i]);$('j'+i).disabled=stopped;$('v'+i).value=(q[i]*180/Math.PI).toFixed(1)+'°';});scene.updateMatrixWorld(true);links.L6.getWorldPosition(position);$('xyz').textContent=`X ${(position.x*1000).toFixed(1)} / Y ${(position.y*1000).toFixed(1)} / Z ${(position.z*1000).toFixed(1)}`;}
- robotHand.update(fingers);skeleton.update(reference?fingers:(pose?.local||fingers));
+ // Both 3D views always use the same applied pose, including pause/loss/manual modes.
+ robotHand.update(fingers);robotHand.group.updateWorldMatrix(true,false);
+ robotHand.group.getWorldQuaternion(handRotation);skeleton.update(fingers,handRotation);
+ drawInput(hand);popup.draw();
+ $('frameStatus').textContent=stream?(hand&&pose?`Mẫu tay ${lastVideoTime.toFixed(2)} s · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot và xương 3D giữ tư thế'):'Bật camera để nhận diện tay';
  const curls=fingerCurls(fingers);curls.forEach((v,i)=>{$('fbar'+i).value=v*100;$('f'+i).value=Math.round(v*100)+'%';});
  orbit.update();renderer.render(scene,camera);
 }

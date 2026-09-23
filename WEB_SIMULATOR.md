@@ -35,3 +35,8 @@ GitHub Actions kiểm tra, tải các tệp AI theo phiên bản cố định v�
 Bật camera → Hiện video nổi để xem video trực tiếp song song với xương tay và cobot. Cửa sổ nổi nằm trong trang; kéo thanh tiêu đề để di chuyển, kéo góc ↘ để đổi kích thước (hoặc chọn góc bằng Tab và dùng phím mũi tên). Nhấn × hoặc Escape khi đang ở cửa sổ để ẩn video mà vẫn giữ nhận diện và mốc tay. Tắt camera sẽ đóng và xóa hình trong popup.
 
 Mặc định video nổi ẩn. Khi bật, popup hiển thị toàn bộ camera, có thể bao gồm mặt và nền; lựa chọn Chỉ xương tay vẫn áp dụng riêng cho khung nhận diện. Popup dùng lại luồng camera hiện có, không yêu cầu thêm camera và hoạt động cả khi mô hình AI đang tải.
+
+## Đồng bộ mẫu tay (LAB 06)
+Nhận diện chạy một lần cho mỗi khung video mới, không còn bộ giới hạn 20 Hz. Trong chế độ tay đã lấy mốc, một kết quả nhận diện cập nhật đồng thời tư thế ngón, mục tiêu IK và góc khớp mô phỏng; bỏ lớp làm mượt riêng vốn khiến robot chạy sau hình thị giác. Chế độ thanh trượt/trình diễn vẫn chuyển động mềm. Hai mô hình 3D luôn dùng chung tư thế ngón và hướng bàn tay đã áp dụng trên cobot, kể cả khi dừng, mất tay hoặc chưa lấy mốc. Xương 3D xoay cùng bàn tay cobot, không giữ hướng cố định như trước.
+
+Khung thị giác là quan sát trực tiếp; trước khi lấy mốc hoặc khi dừng nó vẫn cho thấy tay thật, còn cả hai mô hình 3D giữ tư thế. Dòng trạng thái phân biệt rõ trạng thái này với đang bám tay. Đồng bộ là cùng mẫu nhận diện, không phải cam kết không có độ trễ: tốc độ phụ thuộc camera/AI và khả năng máy; robot vẫn bị giới hạn góc và tầm với.

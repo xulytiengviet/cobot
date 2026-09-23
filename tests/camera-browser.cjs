@@ -43,6 +43,11 @@ const assert=require('node:assert/strict');
    if(state==='bend'){p[7]=[.028,.075,.019];p[8]=[.028,.057,.025];}
    return {landmarks:[p.map(([x,y,z])=>({x:.5+x*3+(state==='move'?.1:0),y:.8-y*3,z:-z*3}))],worldLandmarks:[p.map(([x,y,z])=>({x,y:-y,z:-z}))],handedness:[[{categoryName:'Right'}]]};
   }};`;
+  await page.route('**/hand-view.js',async route=>{
+   const response=await route.fetch();let source=await response.text();
+   source=source.replace('return {group,update};',`return {group,update(points){globalThis[robot?'__robotPoints':'__skeletonPoints']=points.map(p=>[...p]);update(points);}};`);
+   await route.fulfill({response,body:source});
+  });
   await page.route('**/vision_bundle.mjs',r=>r.fulfill({contentType:'application/javascript',body:fixture}));
   await page.addInitScript(()=>{window.__videoDraws=0;window.__popupDraws=0;window.__cameraCalls=0;const gum=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);navigator.mediaDevices.getUserMedia=(...args)=>{window.__cameraCalls++;return gum(...args);};const draw=CanvasRenderingContext2D.prototype.drawImage;CanvasRenderingContext2D.prototype.drawImage=function(source,...args){if(this.canvas.id==='overlay'&&source instanceof HTMLVideoElement)window.__videoDraws++;if(this.canvas.id==='popupCanvas'&&source instanceof HTMLVideoElement)window.__popupDraws++;return draw.call(this,source,...args);};});
   await page.goto('http://localhost:8000/');
@@ -58,6 +63,21 @@ const assert=require('node:assert/strict');
   await page.evaluate(()=>window.__handState='bend');
   await page.waitForFunction(v=>Number(document.querySelector('#f1').textContent.replace('%',''))>v+20,beforeFinger,{timeout:6000});
   assert.equal(await page.locator('#v4').textContent(),wristBefore);
+  // Repeated alternating poses must be applied in full on the first accepted frame.
+  for(const state of ['open','bend','open','bend']){
+   await page.evaluate(state=>window.__handState=state,state);
+   const bent=state==='bend';
+   await page.waitForFunction(bent=>{
+    const points=window.__robotPoints;if(!points)return false;
+    return bent?Math.abs(points[8][2])>.02:Math.abs(points[8][2])<1e-8;
+   },bent,{timeout:6000});
+   assert(await page.evaluate(()=>JSON.stringify(window.__robotPoints)===JSON.stringify(window.__skeletonPoints)),'Both 3D renders must consume the identical applied pose');
+   const points=await page.evaluate(()=>window.__robotPoints);
+   const expected=OPEN_HAND.map(p=>[...p]);if(bent){expected[7]=[.028,.075,.019];expected[8]=[.028,.057,.025];}
+   const {handPose}=await import('../web/hand-model.mjs');
+   const local=handPose(expected.map(([x,y,z])=>({x:.5+x*3,y:.8-y*3,z:-z*3})),expected.map(([x,y,z])=>({x,y:-y,z:-z}))).local;
+   assert(points.every((p,i)=>p.every((v,j)=>Math.abs(v-local[i][j])<1e-8)),'No trailing independent finger interpolation');
+  }
   const armBefore=await page.locator('.joint output').allTextContents();
   await page.evaluate(()=>window.__handState='move');
   await page.waitForFunction(previous=>Array.from(document.querySelectorAll('.joint output')).slice(0,3).some((el,i)=>Math.abs(parseFloat(el.textContent)-parseFloat(previous[i]))>.5),armBefore,{timeout:6000});
