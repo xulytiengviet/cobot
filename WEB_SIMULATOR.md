@@ -1,40 +1,32 @@
-# Cobot Lab — PAROL6 điều khiển bằng bàn tay
+# Cobot Lab 04 — tay thật, xương tay và bàn tay robot
 
-Trang `index.html` chạy trực tiếp trên GitHub Pages, không cần backend. Mô hình dùng bảy STL và chuỗi khớp, phép biến đổi, trục quay, giới hạn góc từ `PAROL6_URDF/PAROL6/urdf/PAROL6.urdf`. Giữ nguyên mã firmware và các tài liệu gốc.
+## Bắt đầu
 
-## Chạy
+Mở trang GitHub Pages của kho. Bật camera, giữ một bàn tay ổn định rồi nhấn **Lấy mốc tay**. Nhãn **ĐỒNG BỘ** xác nhận robot đã bám tay. Mặc định toàn bộ video thật bị ẩn: camera chỉ là nguồn nhận diện, không cần hiển thị khuôn mặt.
 
-- GitHub: Settings → Pages → Source: **GitHub Actions**. Workflow `Deploy Cobot Lab` sẽ triển khai trang khi push lên main; có thể chạy thủ công trong Actions.
-- Máy tính: tại thư mục repo, chạy `python scripts/prepare-vision.py`, sau đó `python -m http.server 8000`, mở `http://localhost:8000`.
-- Camera cần HTTPS hoặc localhost, không mở bằng `file://`. Cần Internet để tải Three.js, MediaPipe và mô hình tay. Không yêu cầu API key.
+- **Chỉ xương tay · Ẩn video:** chỉ vẽ các điểm và đoạn xương lên nền đen. Không vẽ bất kỳ pixel video nào.
+- **Camera vùng tay · Có nền:** phóng vùng quanh bàn tay; đây là crop, không phải tách nền hoặc nhận diện khuôn mặt. Nền phía sau tay có thể xuất hiện.
+- **Camera đầy đủ:** người dùng chủ động chọn để xem toàn bộ hình camera.
+- Video nguồn đặt inline, ẩn, tắt PiP/remote playback theo khả năng trình duyệt. Hành vi cửa sổ nổi do hệ điều hành quản lý có thể khác giữa các thiết bị.
 
-## Điều khiển
+## Đồng bộ chuyển động
 
-1. Bấm **Bật camera**, cho phép truy cập camera. Giữ một bàn tay mở trong khung hình, ánh sáng đủ.
-2. Bấm **Lấy mốc tay**. Góc robot hiện tại trở thành gốc điều khiển tương đối.
-3. Chế độ **Cử chỉ · 6 khớp**: ngang → J1, dọc → J2, kích thước lòng bàn tay → J3, góc nghiêng bàn tay → J4, độ duỗi ngón trỏ → J5, khoảng cách ngón cái–trỏ → J6.
-4. Chế độ **Cử chỉ · từng khớp**: chọn J1–J6, lấy mốc, dịch tay ngang. Chế độ này dễ kiểm soát và tách từng trục.
-5. Mất dấu tay: giữ nguyên góc ngay, xóa mốc. Đưa tay trở lại rồi lấy mốc mới. Đổi chế độ / đổi khớp cũng yêu cầu lấy mốc mới.
-6. **Dừng** hoặc Space khóa chuyển động. **Tiếp tục** mở khóa. Có thanh trượt, trình diễn, về gốc và lưu / khôi phục một tư thế vào localStorage.
+Một kết quả MediaPipe gồm 21 landmarks dùng chung cho cả ba hình: khung đầu vào, xương tay 3D và bàn tay robot. Bàn tay robot có năm ngón, mỗi ngón gồm các đốt và khớp hình học. Các landmarks 3D được chuẩn hóa theo hệ trục lòng bàn tay, nên dịch/xoay toàn bàn tay không tự làm co ngón. Bộ lọc làm mượt dùng chung giữa bàn tay robot và xương tay 3D khi đã lấy mốc. Thước phần trăm là độ co ngón ước lượng, không phải phép đo y khoa.
 
-## Phạm vi
+**Đồng bộ tay + cánh tay:** dịch tay ngang/dọc và thay đổi kích thước lòng bàn tay tạo mục tiêu vị trí tương đối cho gốc L6. Bộ giải IK vị trí có damping điều khiển J1–J3 theo URDF. Hướng lòng bàn tay điều khiển J4–J6 tương đối với góc lúc lấy mốc. Năm ngón chạy độc lập với cổ tay; co ngón không được dùng để xoay J5/J6 nữa. Khi ra ngoài tầm với, giữ nghiệm gần nhất trong giới hạn khớp và hiển thị thông báo.
 
-Đây là mô phỏng **động học thuận**, không phải bộ giải IK theo vị trí đầu công tác, mô phỏng động lực học hay bộ điều khiển robot thật. Sáu góc là sáu khớp PAROL6; chụm ngón điều khiển J6, không phải kẹp (mô hình gốc không có kẹp). Vị trí hiển thị là gốc link L6, không phải TCP của dụng cụ. J6 là continuous trong URDF nhưng giao diện sử dụng khoảng -3.1…3.1 rad có khai báo trong file để điều khiển hữu hạn. Mô phỏng chưa kiểm tra va chạm / tự va chạm.
+**Cử chỉ · từng khớp:** chọn một J1–J6 và dịch tay ngang; các ngón vẫn bám tay sau khi lấy mốc. Thanh trượt và trình diễn vẫn có sẵn. **Xem bàn tay** đưa góc nhìn lại gần bàn tay robot. Lưu/khôi phục tư thế lưu cả góc cánh tay và tọa độ các ngón trong localStorage; tư thế cũ chỉ gồm sáu góc vẫn đọc được.
 
-Độ sâu chỉ suy ra tương đối từ kích thước bàn tay trong ảnh 2D; không đo khoảng cách vật lý. Dùng một tay cố định, lấy lại mốc khi đổi tay. Các đặc trưng tay có thể ảnh hưởng lẫn nhau; chế độ từng khớp giúp thao tác chính xác hơn. Chuyển động có làm mượt và giới hạn tốc độ mô phỏng 1.2 rad/s.
+Mất dấu tay: giữ tư thế ngay. Mất dưới 0,7 giây có thể tiếp tục theo cùng mốc; lâu hơn phải lấy mốc mới. Đổi tay trái/phải, đổi chế độ, dừng hoặc ẩn tab sẽ xóa mốc. Space / Dừng khóa chuyển động robot. Bàn tay robot chỉ bám cử chỉ sau khi lấy mốc; xương tay trước khi lấy mốc vẫn hiển thị đầu vào để căn chỉnh.
 
-Video không được gửi lên máy chủ bởi ứng dụng. Trình duyệt tải các thư viện / model từ jsDelivr và Google, nhận diện tại máy. Tắt camera giải phóng luồng video. Quyền camera có thể cần được đặt lại cạnh thanh địa chỉ nếu trước đó đã từ chối.
+## Phạm vi và nguồn
 
-## Kiểm tra
+Cánh tay dùng URDF và STL gốc PAROL6; bàn tay năm ngón là phần mô phỏng bổ sung, không phải bộ phận phần cứng PAROL6 đã được xác nhận. Vị trí hiển thị là gốc L6, không phải đầu ngón. IK chỉ giải vị trí J1–J3; hướng cổ tay là ánh xạ tương đối, không phải bộ giải pose IK sáu trục hoàn chỉnh. Độ sâu là ước lượng đơn camera từ kích thước tay; không cam kết theo đúng tọa độ thế giới hoặc sao chép chuyển động 1:1 theo mét. Chưa có kiểm tra va chạm, mô phỏng lực, giới hạn cơ khí ngón thật hoặc kết nối robot thật.
 
-`node --test tests/control.test.mjs` kiểm tra trung tính, sáu đặc trưng, giới hạn góc, liên tục góc nghiêng, điều khiển riêng khớp, giới hạn vận tốc và loại bỏ bàn tay quá nhỏ. Kiểm tra camera thật vẫn cần thực hiện trên laptop.
+Source Robotics / PCrnjak: PAROL6, GPL-3.0. Các phần bổ sung cùng GPL-3.0. Three.js: MIT. MediaPipe: Apache-2.0, xem web/VENDOR-NOTICE.md. Video được xử lý trong trình duyệt; ứng dụng không gửi video lên máy chủ.
 
-## Nguồn và giấy phép
+## Triển khai và kiểm tra
 
-PAROL6: Source Robotics / PCrnjak; giữ LICENSE GPL-3.0 của kho mã nguồn. Phần mô phỏng bổ sung được cung cấp theo cùng GPL-3.0. Three.js: MIT; MediaPipe: Apache-2.0. Các thư viện tải riêng qua CDN, không thay đổi giấy phép của mô hình / mã gốc.
+GitHub Actions kiểm tra, tải các tệp AI theo phiên bản cố định và SHA-256, giữ chúng trong web/vendor/mediapipe, rồi triển khai Pages. Máy tính: chạy `python scripts/prepare-vision.py`, sau đó `python -m http.server 8000`. Cần HTTPS hoặc localhost; Three.js tải từ CDN. Trang `camera-check.html` kiểm tra API camera gốc độc lập với AI/3D.
 
-## Bản sửa camera 23/09/2026
-
-Camera được mở và kiểm tra có khung hình trước khi tải AI. Các tệp MediaPipe và mô hình được tải, kiểm tra SHA-256 trong bước triển khai rồi phục vụ từ chính GitHub Pages. Khi AI lỗi, camera tiếp tục hiển thị và có nút **Thử lại AI**. Giao diện có chọn thiết bị; tắt camera trước khi đổi thiết bị. Lỗi quyền, camera đang bận, không có camera và quá thời gian được phân biệt, kèm mã lỗi. Có thời hạn chờ và giải phóng luồng camera đến muộn sau khi người dùng hủy.
-
-Workflow chạy `node --test tests/*.test.mjs` và kiểm thử Chromium với camera giả lập: khởi tạo MediaPipe thật, suy luận video, giữ camera khi tải mô hình thất bại và thử lại thành công. Kiểm thử này không thay thế kiểm tra driver/camera thật trên laptop.
+`node --test tests/*.test.mjs` kiểm tra camera, chuẩn hóa landmarks, tách co ngón khỏi xoay cổ tay, vị trí trung tính, IK và giới hạn. Workflow kiểm tra MediaPipe thật với camera giả lập và kiểm tra đồng bộ bằng landmarks có kiểm soát. Các kiểm thử không thay thế trải nghiệm camera thật của người dùng, đặc biệt trên iOS.

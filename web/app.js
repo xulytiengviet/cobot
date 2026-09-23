@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {features,handTargets,advance,clamp} from './control.mjs';
+import {handPose,OPEN_HAND,fingerCurls,palmGoal,wristTargets,solvePositionIK} from './hand-model.mjs';
+import {makeHand,skeletonPreview} from './hand-view.js';
 import {cameraError,timeout,stopStream,acquireCamera,waitForVideo} from './camera.mjs';
 const $=id=>document.getElementById(id),say=t=>$('message').textContent=t;
 const scene=new THREE.Scene();scene.background=new THREE.Color('#101a23');scene.fog=new THREE.Fog('#101a23',1.5,3.5);
@@ -19,9 +21,17 @@ const grid=new THREE.GridHelper(2,40,0x365968,0x223441);grid.rotation.x=Math.PI/
 const ring=new THREE.Mesh(new THREE.RingGeometry(.38,.381,128),new THREE.MeshBasicMaterial({color:0x457269,side:THREE.DoubleSide,transparent:true,opacity:.6}));ring.position.z=-.005;scene.add(ring);
 const root=new THREE.Group();scene.add(root);
 const links={},joints=[],limits=[];let q=Array(6).fill(0),target=[...q],ready=false,stopped=false,mode='manual';
+let pose=null,referencePose=null,referencePosition=null,side=null,referenceSide=null,stableFrames=0;
+let fingers=OPEN_HAND.map(p=>[...p]),fingerTarget=OPEN_HAND.map(p=>[...p]);
 let stream=null,landmarker=null,starting=false,session=0,lastVideoTime=-1,lastSeen=0,lastDetection=0,hand=null,reference=null,referenceAngles=null;
 const labels=['Đế','Vai','Khuỷu','Cẳng tay','Cổ tay','Mặt bích'];
+const robotHand=makeHand(true);robotHand.group.position.z=-.065;robotHand.group.rotation.x=-Math.PI/2;
+const skeleton=skeletonPreview($('skeleton3d'));
+const names=['Cái','Trỏ','Giữa','Áp út','Út'];
+names.forEach((name,i)=>{const row=document.createElement('div');row.className='finger-row';row.innerHTML=`<span>${name}</span><progress id="fbar${i}" max="100" value="0"></progress><output id="f${i}">0%</output>`;$('fingerValues').append(row);});
 const status=t=>$('cameraState').textContent=t;
+$('video').addEventListener('enterpictureinpicture',()=>{if(document.pictureInPictureElement=== $('video'))document.exitPictureInPicture?.().catch(()=>{});});
+$('video').addEventListener('webkitpresentationmodechanged',()=>{const v=$('video');if(v.webkitPresentationMode&&v.webkitPresentationMode!=='inline'){try{v.webkitSetPresentationMode('inline');}catch{}}});
 function origin(group,element){if(!element)return;group.position.fromArray((element.getAttribute('xyz')||'0 0 0').split(/\s+/).map(Number));const r=(element.getAttribute('rpy')||'0 0 0').split(/\s+/).map(Number);group.rotation.set(r[0],r[1],r[2],'ZYX');}
 async function loadRobot(){
  const response=await fetch('PAROL6_URDF/PAROL6/urdf/PAROL6.urdf');if(!response.ok)throw Error('Không tải được URDF');
@@ -43,15 +53,16 @@ async function loadRobot(){
  }
  if(joints.length!==6)throw Error('URDF phải có sáu khớp');
  await Promise.all(loads);
- const axes=new THREE.AxesHelper(.065);links.L6.add(axes);
+ links.L6.add(robotHand.group);
+ const axes=new THREE.AxesHelper(.04);axes.visible=false;links.L6.add(axes);
  for(let i=0;i<6;i++){
   const row=document.createElement('div');row.className='joint';row.innerHTML=`<label for="j${i}"><b>J${i+1}</b>${labels[i]}</label><input id="j${i}" type="range" min="${limits[i][0]}" max="${limits[i][1]}" step="0.001" value="0"><output id="v${i}">0.0°</output>`;$('joints').append(row);
   $('j'+i).oninput=e=>{if(stopped)return;setMode('manual');target[i]=Number(e.target.value);};
  }
  ready=true;$('modelStatus').textContent='URDF + STL GỐC / SẴN SÀNG';
 }
-function freeze(){target=[...q];}
-function clearReference(){reference=null;referenceAngles=null;}
+function freeze(){target=[...q];fingerTarget=fingers.map(p=>[...p]);}
+function clearReference(){reference=null;referenceAngles=null;referencePose=null;referencePosition=null;referenceSide=null;$('syncState').textContent='CHƯA LẤY MỐC';$('syncState').dataset.active='false';}
 function setMode(value){mode=value;$('mode').value=value;freeze();clearReference();if(value==='hand'||value==='single')say('Giữ tay mở trong khung hình rồi nhấn Lấy mốc tay.');}
 $('mode').onchange=e=>setMode(e.target.value);
 $('jointSelect').onchange=()=>{freeze();clearReference();say('Đã đổi khớp. Lấy mốc tay mới để điều khiển.');};
@@ -59,11 +70,44 @@ $('gain').oninput=e=>{$('gainValue').value=Number(e.target.value).toFixed(1)+'×
 function stop(){stopped=!stopped;freeze();clearReference();$('stop').innerHTML=stopped?'▶ TIẾP TỤC <kbd>Space</kbd>':'■ DỪNG <kbd>Space</kbd>';say(stopped?'Đã dừng mọi chuyển động.':'Đã mở khóa. Lấy mốc mới nếu dùng cử chỉ.');}
 $('stop').onclick=stop;addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName)){e.preventDefault();stop();}});
 $('home').onclick=()=>{if(stopped)return;setMode('manual');target=Array(6).fill(0);say('Đang trở về tư thế gốc URDF.');};
-$('save').onclick=()=>{try{localStorage.setItem('cobot-pose-v1',JSON.stringify(q));say('Đã lưu tư thế trong trình duyệt.');}catch{say('Trình duyệt không cho phép lưu tư thế.');}};
-$('restore').onclick=()=>{if(stopped||!ready)return;try{const saved=JSON.parse(localStorage.getItem('cobot-pose-v1'));if(!Array.isArray(saved)||saved.length!==6||!saved.every(Number.isFinite))throw Error();setMode('manual');target=saved.map((v,i)=>clamp(v,...limits[i]));say('Đang khôi phục tư thế đã lưu.');}catch{say('Chưa có tư thế hợp lệ được lưu.');}};
-$('calibrate').onclick=()=>{if(!hand||stopped||!ready)return;if(mode!=='hand'&&mode!=='single')setMode('hand');reference=features(hand);referenceAngles=[...q];freeze();say('Đã lấy mốc. Di chuyển tay chậm để điều khiển.');};
+$('save').onclick=()=>{try{localStorage.setItem('cobot-pose-v1',JSON.stringify({angles:q,fingers}));say('Đã lưu tư thế trong trình duyệt.');}catch{say('Trình duyệt không cho phép lưu tư thế.');}};
+$('restore').onclick=()=>{if(stopped||!ready)return;try{
+ const saved=JSON.parse(localStorage.getItem('cobot-pose-v1'));const angles=Array.isArray(saved)?saved:saved?.angles;
+ if(!Array.isArray(angles)||angles.length!==6||!angles.every(Number.isFinite))throw Error();
+ setMode('manual');target=angles.map((v,i)=>clamp(v,...limits[i]));
+ if(Array.isArray(saved.fingers)&&saved.fingers.length===21&&saved.fingers.every(p=>Array.isArray(p)&&p.length===3&&p.every(v=>Number.isFinite(v)&&Math.abs(v)<.2)))fingerTarget=saved.fingers;
+ say('Đang khôi phục tư thế đã lưu.');
+ }catch{say('Chưa có tư thế hợp lệ được lưu.');}};
+$('calibrate').onclick=()=>{
+ if(!hand||!pose||stopped||!ready||stableFrames<3)return;
+ if(mode!=='hand'&&mode!=='single')setMode('hand');
+ reference=features(hand);referenceAngles=[...q];referencePose=pose;referenceSide=side;
+ scene.updateMatrixWorld(true);referencePosition=links.L6.getWorldPosition(new THREE.Vector3()).toArray();freeze();fingerTarget=pose.local.map(p=>[...p]);
+ $('syncState').textContent='● ĐỒNG BỘ';$('syncState').dataset.active='true';say('Đã lấy mốc: dịch tay, xoay cổ tay và co duỗi từng ngón để điều khiển.');
+};
+$('focusHand').onclick=()=>{if(!ready)return;const pos=robotHand.group.localToWorld(new THREE.Vector3(0,.05,0));orbit.minDistance=.09;orbit.target.copy(pos);camera.position.copy(pos).add(new THREE.Vector3(.17,-.20,.12));orbit.update();};
+function drawInput(points){
+ const c=$('overlay'),ctx=c.getContext('2d'),v=$('video'),display=$('visibility').value;
+ if(c.width!==640||c.height!==480){c.width=640;c.height=480;}ctx.clearRect(0,0,640,480);ctx.fillStyle='#080e13';ctx.fillRect(0,0,640,480);
+ if(!points){if(display==='full'&&stream&&v.readyState>=2){ctx.save();ctx.translate(640,0);ctx.scale(-1,1);ctx.drawImage(v,0,0,640,480);ctx.restore();}return;}
+ let minX=0,minY=0,maxX=1,maxY=1;
+ if(display!=='full'){minX=Math.min(...points.map(p=>p.x));maxX=Math.max(...points.map(p=>p.x));minY=Math.min(...points.map(p=>p.y));maxY=Math.max(...points.map(p=>p.y));const cx=(minX+maxX)/2,cy=(minY+maxY)/2;const h=Math.max(maxY-minY,(maxX-minX)*v.videoWidth/v.videoHeight)*1.4;minY=Math.max(0,cy-h/2);maxY=Math.min(1,cy+h/2);const w=(maxY-minY)*4/3*v.videoHeight/v.videoWidth;minX=Math.max(0,cx-w/2);maxX=Math.min(1,cx+w/2);}
+ const width=Math.max(maxX-minX,.001),height=Math.max(maxY-minY,.001),aspect=width*v.videoWidth/(height*v.videoHeight);
+ const dw=Math.min(640,480*aspect),dh=dw/aspect,ox=(640-dw)/2,oy=(480-dh)/2;
+ ctx.save();ctx.translate(640,0);ctx.scale(-1,1);
+ if(display!=='skeleton'&&v.readyState>=2)ctx.drawImage(v,minX*v.videoWidth,minY*v.videoHeight,width*v.videoWidth,height*v.videoHeight,ox,oy,dw,dh);
+ const xy=p=>[ox+(p.x-minX)/width*dw,oy+(p.y-minY)/height*dh];ctx.strokeStyle='#80f1c6';ctx.lineWidth=3;
+ for(const [a,b]of connections){ctx.beginPath();ctx.moveTo(...xy(points[a]));ctx.lineTo(...xy(points[b]));ctx.stroke();}
+ for(const p of points){ctx.beginPath();ctx.arc(...xy(p),4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();}ctx.restore();
+}
+$('visibility').onchange=()=>{
+ const display=$('visibility').value;
+ $('privacyNote').textContent=display==='skeleton'?'Ẩn toàn bộ video; camera vẫn nhận diện tay.':display==='crop'?'Chỉ cắt vùng tay; nền phía sau tay vẫn có thể xuất hiện.':'Đang hiển thị toàn bộ hình camera.';
+ drawInput(hand);
+};
+function forwardPosition(angles){joints.forEach(({child,axis},i)=>child.quaternion.setFromAxisAngle(axis,angles[i]));root.updateMatrixWorld(true);return links.L6.getWorldPosition(new THREE.Vector3()).toArray();}
 let aiLoading=false;
-function releaseCamera(){session++;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;freeze();clearReference();$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
+function releaseCamera(){session++;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;pose=null;stableFrames=0;freeze();clearReference();drawInput(null);$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
 async function refreshDevices(){
  try{const current=$('cameraSelect').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');$('cameraSelect').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));if(devices.some(d=>d.deviceId===current))$('cameraSelect').value=current;}catch(error){console.warn('Cannot list cameras',error);}
 }
@@ -102,7 +146,7 @@ $('camera').onclick=async()=>{
   const candidate=await acquireCamera(navigator.mediaDevices,$('cameraSelect').value);
   if(token!==session){stopStream(candidate);return;}stream=candidate;
   stream.getVideoTracks()[0].onended=()=>{if(token===session){releaseCamera();say('Camera đã ngắt. Bật camera để kết nối lại.');}};
-  const video=$('video');video.srcObject=stream;
+  const video=$('video');video.muted=true;video.playsInline=true;video.setAttribute('playsinline','');video.setAttribute('webkit-playsinline','');video.disablePictureInPicture=true;video.srcObject=stream;
   await timeout(video.play(),12000,'Video playback timeout');await waitForVideo(video);
   if(token!==session)return;
   lastVideoTime=-1;lastSeen=performance.now();$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
@@ -115,28 +159,45 @@ function detect(now){
  const video=$('video');if(!stream||aiLoading||!landmarker||video.readyState<2||video.currentTime===lastVideoTime||now-lastDetection<50)return;
  lastVideoTime=video.currentTime;lastDetection=now;
  const result=landmarker.detectForVideo(video,now);hand=result.landmarks[0]||null;
- const canvas=$('overlay');if(canvas.width!==video.videoWidth){canvas.width=video.videoWidth;canvas.height=video.videoHeight;}
- const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
- if(hand&&features(hand)){
-  lastSeen=now;status('● NHẬN DIỆN TAY');$('calibrate').disabled=stopped||!ready;
-  ctx.strokeStyle='#80f1c6';ctx.lineWidth=3;
-  for(const [a,b]of connections){ctx.beginPath();ctx.moveTo(hand[a].x*canvas.width,hand[a].y*canvas.height);ctx.lineTo(hand[b].x*canvas.width,hand[b].y*canvas.height);ctx.stroke();}
-  for(const p of hand){ctx.beginPath();ctx.arc(p.x*canvas.width,p.y*canvas.height,4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();}
-  if(!stopped&&reference&&(mode==='hand'||mode==='single'))target=handTargets(features(hand),reference,referenceAngles,limits,Number($('gain').value),mode==='single'?Number($('jointSelect').value):-1);
- }else{hand=null;loseHand();}
+ side=result.handedness?.[0]?.[0]?.categoryName||'Unknown';
+ pose=hand?handPose(hand,result.worldLandmarks?.[0]):null;
+ drawInput(hand);
+ if(hand&&pose){
+  const wasLost=stableFrames===0;stableFrames++;
+  if(referenceSide&&side!==referenceSide){freeze();clearReference();say('Đã đổi bàn tay. Lấy mốc mới để tiếp tục.');}
+  lastSeen=now;status('● NHẬN DIỆN TAY');$('calibrate').disabled=stopped||!ready||stableFrames<3;
+  if(wasLost&&!reference)say('Đã thấy tay. Giữ tay ổn định rồi nhấn Lấy mốc tay.');
+  if(!stopped&&reference&&(mode==='hand'||mode==='single')){
+   fingerTarget=pose.local.map(p=>[...p]);
+   if(mode==='single')target=handTargets(pose.features,reference,referenceAngles,limits,Number($('gain').value),Number($('jointSelect').value));
+   else{
+    const gain=Number($('gain').value),goal=palmGoal(pose,referencePose,referencePosition,gain);
+    const wrist=wristTargets(pose,referencePose,referenceAngles,limits,gain);const start=[...target.slice(0,3),...wrist.slice(3)];
+    const solved=solvePositionIK(start,goal,limits,forwardPosition);target=solved.angles;forwardPosition(q);
+    $('trackingInfo').textContent=solved.error>.015?'Đã tới giới hạn tầm với; robot giữ điểm gần nhất.':`Bám cổ tay · sai lệch mô phỏng ${(solved.error*1000).toFixed(1)} mm · ${side==='Left'?'tay trái':'tay phải'}`;
+   }
+   $('syncState').textContent='● ĐỒNG BỘ';$('syncState').dataset.active='true';
+  }
+ }else{hand=null;pose=null;loseHand(now);}
 }
-function loseHand(){if(mode==='hand'||mode==='single')freeze();if(reference){clearReference();say('Mất dấu tay: đã giữ tư thế. Đưa tay trở lại và lấy mốc mới.');}$('calibrate').disabled=true;status('KHÔNG THẤY TAY');}
+function loseHand(now){stableFrames=0;if(mode==='hand'||mode==='single')freeze();
+ if(reference){$('syncState').textContent='GIỮ TƯ THẾ';$('syncState').dataset.active='false';if(now-lastSeen>700){clearReference();say('Mất dấu tay: đã giữ tư thế. Đưa tay trở lại và lấy mốc mới.');}}
+ $('calibrate').disabled=true;status('KHÔNG THẤY TAY');
+}
 addEventListener('pagehide',releaseCamera);document.addEventListener('visibilitychange',()=>{if(document.hidden){freeze();clearReference();}});
 new ResizeObserver(()=>{const r=$('scene').getBoundingClientRect();renderer.setSize(r.width,r.height);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();}).observe($('scene'));
 let previous=performance.now();const position=new THREE.Vector3();
 function frame(now){requestAnimationFrame(frame);const dt=(now-previous)/1000;previous=now;
  try{detect(now);}catch(e){hand=null;freeze();clearReference();landmarker?.close();landmarker=null;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say(`Camera vẫn mở. Nhận diện gặp lỗi: ${e.message}. Nhấn Thử lại AI.`);console.error(e);}
- if(stream&&landmarker&&!aiLoading&&now-lastSeen>300&&(mode==='hand'||mode==='single'))loseHand();
+ if(stream&&landmarker&&!aiLoading&&now-lastSeen>300&&(mode==='hand'||mode==='single'))loseHand(now);
  if(ready&&!stopped&&!document.hidden){
   if(mode==='demo')target=limits.map(([lo,hi],i)=>clamp(Math.sin(now/2000+i*.6)*.42,lo,hi));
   q=advance(q,target,dt);
+  const blend=1-Math.exp(-12*Math.min(dt,.05));fingers=fingers.map((p,i)=>p.map((v,j)=>v+(fingerTarget[i][j]-v)*blend));
  }
  if(ready){joints.forEach(({child,axis},i)=>{child.quaternion.setFromAxisAngle(axis,q[i]);$('j'+i).value=String(q[i]);$('j'+i).disabled=stopped;$('v'+i).value=(q[i]*180/Math.PI).toFixed(1)+'°';});scene.updateMatrixWorld(true);links.L6.getWorldPosition(position);$('xyz').textContent=`X ${(position.x*1000).toFixed(1)} / Y ${(position.y*1000).toFixed(1)} / Z ${(position.z*1000).toFixed(1)}`;}
+ robotHand.update(fingers);skeleton.update(reference?fingers:(pose?.local||fingers));
+ const curls=fingerCurls(fingers);curls.forEach((v,i)=>{$('fbar'+i).value=v*100;$('f'+i).value=Math.round(v*100)+'%';});
  orbit.update();renderer.render(scene,camera);
 }
 requestAnimationFrame(frame);loadRobot().catch(e=>{$('modelStatus').textContent='LỖI TẢI MÔ HÌNH';say('Không tải được mô hình 3D. Kiểm tra mạng và tải lại trang.');console.error(e);});

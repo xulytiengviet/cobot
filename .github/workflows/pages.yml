@@ -33,6 +33,12 @@ jobs:
           /tmp/cobot-qa/node_modules/.bin/playwright install --with-deps chromium
           python -m http.server 8000 > /tmp/cobot-http.log 2>&1 &
           node tests/camera-browser.cjs
+      - name: Save hand simulator screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: hand-preview
+          path: _qa/*.png
+          retention-days: 5
       - name: Keep verified AI assets with the source
         run: |
           git add web/vendor/mediapipe
