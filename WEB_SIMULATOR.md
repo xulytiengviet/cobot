@@ -17,7 +17,7 @@ Một kết quả MediaPipe gồm 21 landmarks dùng chung cho cả ba hình: kh
 
 **Cử chỉ · từng khớp:** chọn một J1–J6 và dịch tay ngang; các ngón vẫn bám tay sau khi lấy mốc. Thanh trượt và trình diễn vẫn có sẵn. **Xem bàn tay** đưa góc nhìn lại gần bàn tay robot. Lưu/khôi phục tư thế lưu cả góc cánh tay và tọa độ các ngón trong localStorage; tư thế cũ chỉ gồm sáu góc vẫn đọc được.
 
-Mất dấu tay: giữ tư thế ngay. Mất dưới 0,7 giây có thể tiếp tục theo cùng mốc; lâu hơn phải lấy mốc mới. Đổi tay trái/phải, đổi chế độ, dừng hoặc ẩn tab sẽ xóa mốc. Space / Dừng khóa chuyển động robot. Bàn tay robot chỉ bám cử chỉ sau khi lấy mốc; xương tay trước khi lấy mốc vẫn hiển thị đầu vào để căn chỉnh.
+Mất dấu tay: giữ tư thế ngay. Khi mẫu điều khiển đã cũ quá 450 ms, robot lập tức giữ tư thế; nếu mất dấu liên tục khoảng 1,6–2,8 giây tùy tải AI, mốc mới được yêu cầu. Đổi tay trái/phải, đổi chế độ, dừng hoặc ẩn tab sẽ xóa mốc. Space / Dừng khóa chuyển động robot. Bàn tay robot chỉ bám cử chỉ sau khi lấy mốc; xương tay trước khi lấy mốc vẫn hiển thị đầu vào để căn chỉnh.
 
 ## Phạm vi và nguồn
 
@@ -37,7 +37,7 @@ Bật camera → Hiện video nổi để xem video trực tiếp song song vớ
 Mặc định video nổi ẩn. Khi bật, popup hiển thị toàn bộ camera, có thể bao gồm mặt và nền; lựa chọn Chỉ xương tay vẫn áp dụng riêng cho khung nhận diện. Popup dùng lại luồng camera hiện có, không yêu cầu thêm camera và hoạt động cả khi mô hình AI đang tải.
 
 ## Đồng bộ mẫu tay (LAB 06)
-Nhận diện chạy một lần cho mỗi khung video mới, không còn bộ giới hạn 20 Hz. Trong chế độ tay đã lấy mốc, một kết quả nhận diện cập nhật đồng thời tư thế ngón, mục tiêu IK và góc khớp mô phỏng; bỏ lớp làm mượt riêng vốn khiến robot chạy sau hình thị giác. Chế độ thanh trượt/trình diễn vẫn chuyển động mềm. Hai mô hình 3D luôn dùng chung tư thế ngón và hướng bàn tay đã áp dụng trên cobot, kể cả khi dừng, mất tay hoặc chưa lấy mốc. Xương 3D xoay cùng bàn tay cobot, không giữ hướng cố định như trước.
+Nhận diện chạy một lần cho mỗi khung video mới, không còn bộ giới hạn 20 Hz. Trong chế độ tay đã lấy mốc, một kết quả nhận diện cập nhật đồng thời tư thế ngón, mục tiêu IK và góc khớp mô phỏng; bỏ lớp làm mượt riêng vốn khiến robot chạy sau hình thị giác. Chế độ thanh trượt/trình diễn vẫn chuyển động mềm. Xương tay 3D hiển thị tư thế quan sát được trước cả khi lấy mốc; cobot chỉ nhận điều khiển sau khi lấy mốc. Khi đang điều khiển, dữ liệu ngón dùng chung một mẫu, còn hướng và vị trí cobot chịu giới hạn động học và có thể khác tay thật. Xương 3D xoay cùng bàn tay cobot, không giữ hướng cố định như trước.
 
 Khung thị giác là quan sát trực tiếp; trước khi lấy mốc hoặc khi dừng nó vẫn cho thấy tay thật, còn cả hai mô hình 3D giữ tư thế. Dòng trạng thái phân biệt rõ trạng thái này với đang bám tay. Đồng bộ là cùng mẫu nhận diện, không phải cam kết không có độ trễ: tốc độ phụ thuộc camera/AI và khả năng máy; robot vẫn bị giới hạn góc và tầm với.
 
@@ -54,3 +54,12 @@ Khi bật video trên màn hình nhỏ, khung video nằm trong trang ngay phía
 
 ## Camera thu nhỏ luôn hiện (LAB 09)
 Thay thế bố cục LAB 08: trên điện thoại video nổi mặc định thu nhỏ 210 × 290 px, vẫn theo màn hình khi cuộn. Nút Lấy mốc tay nằm ngay trong cửa sổ video và dùng chung trạng thái khả dụng/hành động với nút chính. ↙ thu nhỏ, ↗ phóng to; cả hai đều giữ video chạy và không thay đổi mốc. Kéo tiêu đề để di chuyển. Chỉ × hoặc Ẩn video mới ẩn cửa sổ. Không tự mở video nếu người dùng chưa chọn Hiện video nổi.
+
+
+## MINI10 — Camera di động và đồng bộ theo mẫu nguồn
+- Trên điện thoại và thiết bị cảm ứng, video camera mini tự hiện sau khi bật camera, nằm ngay trong bảng điều khiển phía trên Bật/Tắt camera và Lấy mốc tay. Nó không còn là lớp phủ cố định che mất nút; ↗/↙ thay đổi chiều cao mà không ẩn video. Trên PC vẫn kéo/đổi kích thước cửa sổ nổi được.
+- Theo dõi khung hình giải mã bằng requestVideoFrameCallback (kết hợp fallback currentTime nếu trình duyệt giảm tần suất callback của video ẩn). Watchdog ngưng nhận mẫu khi không còn khung hình; Khôi phục camera hủy stream và phiên nhận diện cũ.
+- Ảnh trong khung nhận diện là bản chụp đúng khung hình đã đưa vào MediaPipe, không trộn điểm xương của ảnh cũ với video mới. Cửa sổ video mini là video camera trực tiếp phục vụ quan sát và có thể mới hơn khung đã nhận diện.
+- Kết quả AI chỉ được phép điều khiển khi tuổi xử lý không quá 450 ms và đang thuộc đúng phiên camera/tab. Xương tay 3D biểu diễn tư thế bàn tay camera ngay trước khi lấy mốc; robot giữ khi chưa hiệu chuẩn, dừng, mất tay hoặc dữ liệu trễ.
+- Điện thoại mặc định chế độ nhẹ, ảnh đưa vào AI tối đa 320 px; dừng dựng cảnh WebGL khi cảnh ở ngoài vùng nhìn thấy. Bài kiểm thử PR xác nhận khung video nội tuyến không đè lên nút điều khiển ở viewport 390×844, độ mới khung hình và phép biến đổi trục lòng bàn tay.
+- Đây vẫn là mô phỏng: độ sâu chỉ ước lượng từ một camera; J1–J3 giải IK vị trí, J4–J6 ánh xạ tương đối. Chưa có IK pose sáu trục đầy đủ hoặc kiểm tra va chạm, và không nên điều khiển robot thật trực tiếp bằng kết quả nhận diện chưa được xác thực.
