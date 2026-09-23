@@ -20,7 +20,10 @@ export function skeletonPreview(container){
  const scene=new THREE.Scene();scene.background=new THREE.Color('#080e13');
  const camera=new THREE.PerspectiveCamera(38,1,.005,2);camera.up.set(0,0,1);const center=new THREE.Vector3(),offset=new THREE.Vector3(.12,-.18,.16);
  const hand=makeHand();scene.add(hand.group);scene.add(new THREE.HemisphereLight(0xffffff,0x344a55,3));
- const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.25));container.append(renderer.domElement);
+ const light=matchMedia('(pointer:coarse), (max-width:600px)').matches;
+  const renderer=new THREE.WebGLRenderer({antialias:!light,powerPreference:light?'low-power':'default'});renderer.setPixelRatio(Math.min(devicePixelRatio,light?1:1.25));container.append(renderer.domElement);
+  let visible=true;
+  if(typeof IntersectionObserver!=='undefined')new IntersectionObserver(entries=>{visible=entries[0]?.isIntersecting??true;},{rootMargin:'100px'}).observe(container);
  const observer=new ResizeObserver(()=>{const r=container.getBoundingClientRect();renderer.setSize(r.width,r.height);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();});observer.observe(container);
  return {update(points,orientation){
   hand.update(points);if(orientation)hand.group.quaternion.copy(orientation);
