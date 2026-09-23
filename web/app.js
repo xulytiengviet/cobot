@@ -141,12 +141,13 @@ function forwardPosition(angles){joints.forEach(({child,axis},i)=>child.quaterni
 let sampleEpoch=0;
 let observedFrameId=0,lastSubmittedFrameId=-1,stopFrameWatch=null,lastFallbackDraw=0;
 const previewFrame=document.createElement('canvas'),previewContext=previewFrame.getContext('2d');
-let aiLoading=false,detectBusy=false,inferenceMs=0,interval=80,observedVideoTime=-1,lastCameraFrame=0,stalled=false;
+let aiAbort=null,aiLoading=false,detectBusy=false,inferenceMs=0,interval=80,observedVideoTime=-1,lastCameraFrame=0,stalled=false;
 const sampleCanvas=document.createElement('canvas'),sampleContext=sampleCanvas.getContext('2d');
 function aiError(e){sampleEpoch++;detectBusy=false;hand=null;pose=null;freeze();clearReference();landmarker?.close();landmarker=null;overlayDirty=true;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say('Camera vẫn mở. '+e.message+'. Nhấn Thử lại AI.');}
 
 function releaseCamera(){
  popup.setActive(false);session++;sampleEpoch++;detectBusy=false;
+ aiAbort?.abort();aiAbort=null;
  stopFrameWatch?.();stopFrameWatch=null;observedFrameId=0;lastSubmittedFrameId=-1;lastAcceptedFrameId=0;acceptedDelay=0;
  landmarker?.close();landmarker=null;stalled=false;starting=false;
  stopStream(stream);stream=null;$('video').pause();$('video').srcObject=null;
@@ -160,11 +161,11 @@ async function refreshDevices(){
  try{const current=$('cameraSelect').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');$('cameraSelect').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));if(devices.some(d=>d.deviceId===current))$('cameraSelect').value=current;}catch(error){console.warn('Cannot list cameras',error);}
 }
 async function startAI(token){
- if(aiLoading){$('retryAI').hidden=false;say('AI đang hoàn tất lần tải trước. Nhấn Thử lại AI khi nút sẵn sàng.');return;}aiLoading=true;$('retryAI').disabled=true;$('retryAI').hidden=false;
+ if(aiLoading){$('retryAI').hidden=false;say('AI đang hoàn tất lần tải trước. Nhấn Thử lại AI khi nút sẵn sàng.');return;}aiLoading=true;const controller=new AbortController();aiAbort=controller;$('retryAI').disabled=true;$('retryAI').hidden=false;
  try{
   status('CAMERA OK · TẢI AI');say('Camera đã mở. Đang tải nhận diện tay (~18 MB lần đầu)…');
   if(!landmarker){
-   const detector=await createVision();
+   const detector=await createVision({signal:controller.signal});
    if(token!==session){detector.close();return;}landmarker=detector;
   }
   if(token!==session)return;
@@ -172,7 +173,7 @@ async function startAI(token){
  }catch(error){
   if(token!==session)return;
   status('CAMERA OK · AI LỖI');say(`Camera vẫn hoạt động; nhận diện tay chưa sẵn sàng. Nhấn Thử lại AI. Chi tiết: ${error.message}`);console.error('Hand detector initialization',error);
- }finally{aiLoading=false;$('retryAI').disabled=false;if(token!==session&&stream&&!landmarker)queueMicrotask(()=>startAI(session));}
+ }finally{if(aiAbort===controller)aiAbort=null;aiLoading=false;$('retryAI').disabled=false;if(token!==session&&stream&&!landmarker)queueMicrotask(()=>startAI(session));}
 }
 $('refreshCameras').onclick=refreshDevices;
 if(navigator.mediaDevices){refreshDevices();navigator.mediaDevices.addEventListener?.('devicechange',refreshDevices);}
