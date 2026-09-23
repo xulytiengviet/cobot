@@ -5,7 +5,7 @@ on:
     paths: ['index.html', 'web/**', 'tests/**', 'scripts/**', 'PAROL6_URDF/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 concurrency:
@@ -33,6 +33,13 @@ jobs:
           /tmp/cobot-qa/node_modules/.bin/playwright install --with-deps chromium
           python -m http.server 8000 > /tmp/cobot-http.log 2>&1 &
           node tests/camera-browser.cjs
+      - name: Keep verified AI assets with the source
+        run: |
+          git add web/vendor/mediapipe
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Vendor verified MediaPipe runtime and model for Pages'
+            git push origin HEAD:main
+          fi
       - uses: actions/configure-pages@v5
       - name: Stage web assets
         run: |
