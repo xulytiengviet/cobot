@@ -217,9 +217,10 @@ function detect(now){
  .finally(()=>{if(epoch===sampleEpoch)detectBusy=false;});
 }
 function acceptSample(result,now){
- hand=result.landmarks[0]||null;
+ hand=result?.landmarks?.[0]||null;
  side=result.handedness?.[0]?.[0]?.categoryName||'Unknown';
  pose=hand?handPose(hand,result.worldLandmarks?.[0]):null;
+ if(pose?.basis){const b=pose.basis;const map=v=>new THREE.Vector3(v[0],v[2],-v[1]);const matrix=new THREE.Matrix4().makeBasis(map(b.x),map(b.y),map(b.z));pose.viewQuaternion=new THREE.Quaternion().setFromRotationMatrix(matrix);}
  if(hand&&pose){
   const wasLost=stableFrames===0;stableFrames++;
   if(referenceSide&&side!==referenceSide){freeze();clearReference();say('Đã đổi bàn tay. Lấy mốc mới để tiếp tục.');}
@@ -243,7 +244,7 @@ function loseHand(now){stableFrames=0;if(mode==='hand'||mode==='single')freeze()
  $('calibrate').disabled=true;status('KHÔNG THẤY TAY');if(!reference)say('Đưa một bàn tay vào khung hình, giữ ổn định rồi lấy mốc.');
 }
 addEventListener('pagehide',releaseCamera);document.addEventListener('visibilitychange',()=>{
- sampleEpoch++;hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;
+ sampleEpoch++;hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;overlayDirty=true;previewFrame.width=0;previewFrame.height=0;
  if(!document.hidden&&stream){lastCameraFrame=performance.now();$('video').play().catch(()=>say('Nhấn Khôi phục camera để tiếp tục.'));}
 });
 $('recoverCamera').onclick=async()=>{releaseCamera();await $('camera').onclick();};
@@ -253,18 +254,20 @@ new ResizeObserver(()=>{const r=$('scene').getBoundingClientRect();renderer.setS
 let previous=performance.now();const position=new THREE.Vector3(),handRotation=new THREE.Quaternion();
 function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previous<1000/30)return;const dt=(now-previous)/1000;previous=now;
  const video=$('video');
- if(stream&&video.readyState>=2&&video.currentTime!==observedVideoTime){observedVideoTime=video.currentTime;lastCameraFrame=now;stalled=false;}
+ if(stream&&!stopFrameWatch&&video.readyState>=2&&video.currentTime!==observedVideoTime){observedVideoTime=video.currentTime;lastCameraFrame=now;stalled=false;observedFrameId++;}
  if(cameraStalled(lastCameraFrame,now,!!stream,document.hidden)){
-  if(!stalled){hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;stalled=true;say('Video ngừng trả hình. Nhấn Khôi phục camera; trên iPhone hãy mở trang bằng Safari nếu đang dùng trình duyệt trong ứng dụng.');}
+  if(!stalled){hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;stalled=true;overlayDirty=true;say('Video ngừng trả hình. Nhấn Khôi phục camera; trên iPhone hãy mở trang bằng Safari nếu đang dùng trình duyệt trong ứng dụng.');}
   status('CAMERA ĐỨNG HÌNH');
  }
  $('performanceStatus').textContent=stream?`${stalled?'Video đứng': 'Video đang chạy'} · ${landmarker?.kind||'AI chưa sẵn sàng'} · ${Math.round(inferenceMs)} ms / mẫu · tối đa ${Math.round(1000/interval)} mẫu/s`: 'Camera chưa bật';
 
  try{detect(now);}catch(e){detectBusy=false;aiError(e);}
+ if(stream&&!landmarker&&$('visibility').value==='full'&&now-lastFallbackDraw>200){overlayDirty=true;lastFallbackDraw=now;}
  if(!stalled&&stream&&landmarker&&!aiLoading&&now-lastSeen>700){hand=null;pose=null;loseHand(now);}
  if(ready&&!stopped&&!document.hidden){
   if(mode==='demo')target=limits.map(([lo,hi],i)=>clamp(Math.sin(now/2000+i*.6)*.42,lo,hi));
-  const live=!!(hand&&pose&&reference&&(mode==='hand'||mode==='single'));
+  const live=!!(hand&&pose&&reference&&!stalled&&now-lastSeen<=450&&(mode==='hand'||mode==='single'));
+  if(!live&&reference&&(mode==='hand'||mode==='single')&&now-lastSeen>450)freeze();
   // Live simulation consumes the latest accepted sample without a second lag filter.
   q=live?[...target]:advance(q,target,dt);
   const blend=1-Math.exp(-12*Math.min(dt,.05));
@@ -273,7 +276,8 @@ function frame(now){requestAnimationFrame(frame);if(document.hidden||now-previou
  if(ready){joints.forEach(({child,axis},i)=>{child.quaternion.setFromAxisAngle(axis,q[i]);$('j'+i).value=String(q[i]);$('j'+i).disabled=stopped;$('v'+i).value=(q[i]*180/Math.PI).toFixed(1)+'°';});scene.updateMatrixWorld(true);links.L6.getWorldPosition(position);$('xyz').textContent=`X ${(position.x*1000).toFixed(1)} / Y ${(position.y*1000).toFixed(1)} / Z ${(position.z*1000).toFixed(1)}`;}
  // Both 3D views always use the same applied pose, including pause/loss/manual modes.
  robotHand.update(fingers);robotHand.group.updateWorldMatrix(true,false);
- robotHand.group.getWorldQuaternion(handRotation);skeleton.update(fingers,handRotation);
+ robotHand.group.getWorldQuaternion(handRotation);
+ if(pose&&!stalled&&now-lastSeen<=700)skeleton.update(pose.local,pose.viewQuaternion);else skeleton.update(fingers,handRotation);
  drawInput(hand);popup.draw();
  $('frameStatus').textContent=stream?(hand&&pose?`Mẫu tay ${lastVideoTime.toFixed(2)} s · ${reference&&!stopped?'Đang bám tay':'Chưa điều khiển · lấy mốc tay'}`:'Không thấy tay · robot và xương 3D giữ tư thế'):'Bật camera để nhận diện tay';
  const curls=fingerCurls(fingers);curls.forEach((v,i)=>{$('fbar'+i).value=v*100;$('f'+i).value=Math.round(v*100)+'%';});
