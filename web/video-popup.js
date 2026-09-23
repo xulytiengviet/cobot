@@ -83,8 +83,8 @@ export function videoPopup(video) {
  });
  mobile.addEventListener('change',place);
  addEventListener('resize',()=>{if(onMobile()){place();return;}if(!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}});
- visualViewport?.addEventListener('resize',()=>{if(!onMobile()&&!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}});
- visualViewport?.addEventListener('scroll',()=>{if(!onMobile()&&!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}});
+ window.visualViewport?.addEventListener('resize',()=>{if(!onMobile()&&!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}});
+ window.visualViewport?.addEventListener('scroll',()=>{if(!onMobile()&&!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}});
  place();
  return {
   setActive(value){active=value;toggle.disabled=!value;if(!value)show(false);},
