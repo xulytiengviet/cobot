@@ -18,7 +18,7 @@ export function handPose(image,world){
  const local=points.map(p=>{const d=sub(p,points[0]);return [dot(d,x)*scale,dot(d,y)*scale,dot(d,z)*scale];});
  const f=features(image);
  const orientation=[f[3],Math.atan2(along[2],Math.hypot(along[0],along[1])),Math.atan2(side[2],Math.hypot(side[0],side[1]))];
- return {local,features:f,orientation,curls:fingerCurls(local)};
+ return {local,features:f,orientation,basis:{x,y,z},curls:fingerCurls(local)};
 }
 export function fingerCurls(points){return CHAINS.map(chain=>{
  let bend=0;for(let i=1;i<4;i++){const a=unit(sub(points[chain[i]],points[chain[i-1]])),b=unit(sub(points[chain[i+1]],points[chain[i]]));bend+=Math.acos(clamp(dot(a,b),-1,1));}return clamp(bend/3.7,0,1);
