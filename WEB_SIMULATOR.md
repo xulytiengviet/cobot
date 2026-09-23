@@ -54,3 +54,11 @@ Khi bật video trên màn hình nhỏ, khung video nằm trong trang ngay phía
 
 ## Camera thu nhỏ luôn hiện (LAB 09)
 Thay thế bố cục LAB 08: trên điện thoại video nổi mặc định thu nhỏ 210 × 290 px, vẫn theo màn hình khi cuộn. Nút Lấy mốc tay nằm ngay trong cửa sổ video và dùng chung trạng thái khả dụng/hành động với nút chính. ↙ thu nhỏ, ↗ phóng to; cả hai đều giữ video chạy và không thay đổi mốc. Kéo tiêu đề để di chuyển. Chỉ × hoặc Ẩn video mới ẩn cửa sổ. Không tự mở video nếu người dùng chưa chọn Hiện video nổi.
+
+
+## LAB 10 — đồng hồ frame và camera mobile an toàn
+- Trên màn hình nhỏ, video tùy chọn được chuyển vào `mobileVideoSlot` trong luồng trang thay vì `position: fixed`, vì vậy không che nút Bật/Tắt camera hoặc Lấy mốc tay. Thu nhỏ/phóng to chỉ đổi chiều cao trong panel.
+- Khi trình duyệt hỗ trợ, `requestVideoFrameCallback()` cung cấp nhịp frame camera và watchdog; fallback vẫn dùng `currentTime` cho trình duyệt cũ.
+- Mỗi lần AI nhận một frame, ảnh mẫu được giữ lại cùng kết quả landmark. Overlay camera vùng tay/toàn cảnh dùng ảnh mẫu này thay vì ghép landmark cũ lên video mới.
+- Xương tay 3D hiển thị pose đo trực tiếp từ landmark mới nhất; bàn tay robot hiển thị pose đã qua mốc, IK và giới hạn robot. Vì vậy sai lệch do giới hạn cơ cấu không còn bị che bằng cách ép hai mô hình giống hệt nhau.
+- Mẫu AI quá 450 ms bị loại bỏ. Dòng trạng thái hiển thị số frame, thời gian inference và tuổi mẫu để chẩn đoán độ trễ trên thiết bị thật.
