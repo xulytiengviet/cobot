@@ -100,7 +100,11 @@ function drawInput(points){
  const width=Math.max(maxX-minX,.001),height=Math.max(maxY-minY,.001),aspect=width*v.videoWidth/(height*v.videoHeight);
  const dw=Math.min(640,480*aspect),dh=dw/aspect,ox=(640-dw)/2,oy=(480-dh)/2;
  ctx.save();ctx.translate(640,0);ctx.scale(-1,1);
- if(display!=='skeleton'&&v.readyState>=2)ctx.drawImage(v,minX*v.videoWidth,minY*v.videoHeight,width*v.videoWidth,height*v.videoHeight,ox,oy,dw,dh);
+ if(display!=='skeleton'&&v.readyState>=2){
+  const source=acceptedCanvas.width&&acceptedFrameSeq>=0?acceptedCanvas:v;
+  const sw=source===v?v.videoWidth:source.width,sh=source===v?v.videoHeight:source.height;
+  ctx.drawImage(source,minX*sw,minY*sh,width*sw,height*sh,ox,oy,dw,dh);
+ }
  const xy=p=>[ox+(p.x-minX)/width*dw,oy+(p.y-minY)/height*dh];ctx.strokeStyle='#80f1c6';ctx.lineWidth=3;
  for(const [a,b]of connections){ctx.beginPath();ctx.moveTo(...xy(points[a]));ctx.lineTo(...xy(points[b]));ctx.stroke();}
  for(const p of points){ctx.beginPath();ctx.arc(...xy(p),4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();}ctx.restore();
@@ -113,10 +117,19 @@ $('visibility').onchange=()=>{
 function forwardPosition(angles){joints.forEach(({child,axis},i)=>child.quaternion.setFromAxisAngle(axis,angles[i]));root.updateMatrixWorld(true);return links.L6.getWorldPosition(new THREE.Vector3()).toArray();}
 let sampleEpoch=0;
 let aiLoading=false,detectBusy=false,inferenceMs=0,interval=80,observedVideoTime=-1,lastCameraFrame=0,stalled=false;
+let videoFrameSeq=0,lastDetectedFrameSeq=-1,acceptedFrameSeq=-1,acceptedAt=0,videoFrameHandle=0;
 const sampleCanvas=document.createElement('canvas'),sampleContext=sampleCanvas.getContext('2d');
+const acceptedCanvas=document.createElement('canvas'),acceptedContext=acceptedCanvas.getContext('2d');
+function stopVideoClock(){const v=$('video');if(videoFrameHandle&&v.cancelVideoFrameCallback)v.cancelVideoFrameCallback(videoFrameHandle);videoFrameHandle=0;}
+function startVideoClock(){
+ stopVideoClock();const v=$('video');
+ if(typeof v.requestVideoFrameCallback!=='function')return;
+ const tick=(now,meta)=>{if(!stream||document.hidden)return;videoFrameSeq=meta?.presentedFrames||videoFrameSeq+1;lastCameraFrame=performance.now();stalled=false;videoFrameHandle=v.requestVideoFrameCallback(tick);};
+ videoFrameHandle=v.requestVideoFrameCallback(tick);
+}
 function aiError(e){hand=null;pose=null;freeze();clearReference();landmarker?.close();landmarker=null;$('calibrate').disabled=true;$('retryAI').hidden=false;status('CAMERA OK · AI LỖI');say(`Camera vẫn mở. ${e.message}. Nhấn Thử lại AI.`);}
 
-function releaseCamera(){popup.setActive(false);session++;landmarker?.close();landmarker=null;stalled=false;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;pose=null;stableFrames=0;freeze();clearReference();drawInput(null);$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
+function releaseCamera(){popup.setActive(false);stopVideoClock();session++;landmarker?.close();landmarker=null;stalled=false;starting=false;stopStream(stream);stream=null;$('video').srcObject=null;hand=null;pose=null;stableFrames=0;videoFrameSeq=0;lastDetectedFrameSeq=-1;acceptedFrameSeq=-1;acceptedAt=0;freeze();clearReference();drawInput(null);$('camera').textContent='Bật camera';$('camera').disabled=false;$('cameraSelect').disabled=false;$('cameraPlaceholder').style.display='flex';$('calibrate').disabled=true;$('retryAI').hidden=true;status('CHƯA BẬT');const c=$('overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
 async function refreshDevices(){
  try{const current=$('cameraSelect').value;const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');$('cameraSelect').replaceChildren(new Option('Camera mặc định',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));if(devices.some(d=>d.deviceId===current))$('cameraSelect').value=current;}catch(error){console.warn('Cannot list cameras',error);}
 }
@@ -149,7 +162,7 @@ $('camera').onclick=async()=>{
   const video=$('video');video.muted=true;video.playsInline=true;video.setAttribute('playsinline','');video.setAttribute('webkit-playsinline','');video.disablePictureInPicture=true;video.srcObject=stream;
   await timeout(video.play(),12000,'Video playback timeout');await waitForVideo(video);
   if(token!==session)return;
-  popup.setActive(true);lastCameraFrame=performance.now();observedVideoTime=-1;stalled=false;lastVideoTime=-1;lastSeen=performance.now();$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
+  popup.setActive(true);lastCameraFrame=performance.now();observedVideoTime=-1;stalled=false;lastVideoTime=-1;lastSeen=performance.now();videoFrameSeq=0;lastDetectedFrameSeq=-1;acceptedFrameSeq=-1;startVideoClock();$('cameraPlaceholder').style.display='none';$('camera').textContent='Tắt camera';status('CAMERA OK');
   await refreshDevices();startAI(token);
  }catch(error){if(token===session){releaseCamera();status('CAMERA LỖI');say(`${cameraError(error)} Chi tiết trình duyệt: ${error.message||'Không có'}. Mở Kiểm tra camera độc lập để khoanh vùng lỗi.`);refreshDevices();console.error('Camera startup',error);}}
  finally{if(token===session){starting=false;$('camera').disabled=false;}}
@@ -157,16 +170,20 @@ $('camera').onclick=async()=>{
 const connections=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
 function detect(now){
  const video=$('video');
- if(document.hidden||stalled||!stream||aiLoading||!landmarker||detectBusy||video.readyState<2||video.currentTime===lastVideoTime||now-lastDetection<interval)return;
- const capturedAt=performance.now(),token=session,epoch=sampleEpoch,detector=landmarker;
- const frameTime=video.currentTime;lastDetection=now;lastVideoTime=frameTime;detectBusy=true;
+ const hasFrameCallback=typeof video.requestVideoFrameCallback==='function';
+ const noNewFrame=hasFrameCallback?videoFrameSeq===lastDetectedFrameSeq:video.currentTime===lastVideoTime;
+ if(document.hidden||stalled||!stream||aiLoading||!landmarker||detectBusy||video.readyState<2||noNewFrame||now-lastDetection<interval)return;
+ const capturedAt=performance.now(),token=session,epoch=sampleEpoch,detector=landmarker,frameSeq=hasFrameCallback?videoFrameSeq:Math.round(video.currentTime*1000);
+ const frameTime=video.currentTime;lastDetection=now;lastVideoTime=frameTime;lastDetectedFrameSeq=videoFrameSeq;detectBusy=true;
  const scale=Math.min(1,480/Math.max(video.videoWidth,video.videoHeight));
  sampleCanvas.width=Math.max(1,Math.round(video.videoWidth*scale));sampleCanvas.height=Math.max(1,Math.round(video.videoHeight*scale));
  sampleContext.drawImage(video,0,0,sampleCanvas.width,sampleCanvas.height);
  detector.detect(sampleCanvas,now).then(({result,ms})=>{
   if(epoch!==sampleEpoch||detector!==landmarker||!sampleIsFresh(token,session,capturedAt,performance.now(),document.hidden))return;
   inferenceMs=ms;interval=nextInterval(ms,detector.kind==='AI tương thích',$('performance').value==='light');
-  acceptSample(result,performance.now());
+  acceptedCanvas.width=sampleCanvas.width;acceptedCanvas.height=sampleCanvas.height;acceptedContext.drawImage(sampleCanvas,0,0);
+  acceptedFrameSeq=frameSeq;acceptedAt=performance.now();
+  acceptSample(result,acceptedAt);
  }).catch(e=>{if(token===session&&detector===landmarker)aiError(e);}).finally(()=>{detectBusy=false;});
 }
 function acceptSample(result,now){
@@ -197,7 +214,7 @@ function loseHand(now){stableFrames=0;if(mode==='hand'||mode==='single')freeze()
 }
 addEventListener('pagehide',releaseCamera);document.addEventListener('visibilitychange',()=>{
  sampleEpoch++;hand=null;pose=null;stableFrames=0;freeze();clearReference();$('calibrate').disabled=true;
- if(!document.hidden&&stream){lastCameraFrame=performance.now();$('video').play().catch(()=>say('Nhấn Khôi phục camera để tiếp tục.'));}
+ if(!document.hidden&&stream){lastCameraFrame=performance.now();$('video').play().then(startVideoClock).catch(()=>say('Nhấn Khôi phục camera để tiếp tục.'));}else stopVideoClock();
 });
 $('recoverCamera').onclick=async()=>{releaseCamera();await $('camera').onclick();};
 $('performance').onchange=()=>{interval=nextInterval(inferenceMs,landmarker?.kind==='AI tương thích',$('performance').value==='light');};
