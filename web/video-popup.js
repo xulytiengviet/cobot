@@ -87,7 +87,7 @@ export function videoPopup(video) {
  window.visualViewport?.addEventListener('scroll',()=>{if(!onMobile()&&!panel.hidden){const r=panel.getBoundingClientRect();fit(r.x,r.y);}});
  place();
  return {
-  setActive(value){active=value;toggle.disabled=!value;if(!value)show(false);},
+  setActive(value){active=value;toggle.disabled=!value;if(!value)show(false);else if(onMobile())show(true,false);},
   draw(){
    $('popupCalibrate').disabled=$('calibrate').disabled;
    if(!active||panel.hidden||video.readyState<2||!video.videoWidth||lastTime===video.currentTime)return;
